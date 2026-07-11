@@ -22,7 +22,7 @@
 * **通过 ScreenRecordingCallback 检测是否存在录屏**
 * **监听 MediaProjection 服务状态**
 * **监听 MediaRouter 用于辅助**
-* **通过 DisplayManager 检测是否存在有线投屏/镜像**
+* **通过 DisplayManager 检测是否存在投屏**
 * **基础的设备环境安全检测**
 * **检测是否存在 ScreenshotFaker 特征（可选）**
 

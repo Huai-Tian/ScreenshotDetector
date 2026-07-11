@@ -1,5 +1,9 @@
 # ScreenshotDetector
 
+**An application designed to detect the presence of screen capture, screen recording, and screen sharing activities on the device.**
+
+**一个用于检测用户是否存在截屏，录屏和屏幕共享行为的软件**
+
 **This app is the opposite of [ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker). It detects if the app itself is being screenshotted, recorded, or shared via screen-sharing, and whether the runtime environment is secure.**
 
 **此应用程序代表着[ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker)的对立面，用于检测自身是否被截屏、录屏或共享屏幕，以及是否处于风险环境。**

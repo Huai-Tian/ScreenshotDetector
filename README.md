@@ -17,7 +17,7 @@
 * **Monitor MediaRouter for auxiliary detection.**
 * **Detect screen mirroring via DisplayManager.**
 * **Basic device environment security detection.**
-* **Detect ScreenshotFaker characteristics (optional).**
+* **Detect ScreenshotFaker characteristics.**
 
 **检测方式（开发中）**
 * **通过 ScreenCaptureCallback 检测按键截屏**
@@ -28,7 +28,7 @@
 * **监听 MediaRouter 用于辅助**
 * **通过 DisplayManager 检测是否存在投屏**
 * **基础的设备环境安全检测**
-* **检测是否存在 ScreenshotFaker 特征（可选）**
+* **检测是否存在 ScreenshotFaker 特征**
 
 **Important Notice**\
 This software is currently in the early stages of development. Many features are still under construction, and existing ones may have bugs or limitations. I sincerely apologize for any errors or issues you may encounter.You are also welcome to submit Issues and Pull Requests!

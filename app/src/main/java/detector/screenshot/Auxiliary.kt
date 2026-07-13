@@ -1,0 +1,19 @@
+package detector.screenshot
+
+import android.os.Build
+
+object Auxiliary {
+    val isKeyPressScreenshotDetectionAvailable =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+    // 检测项唯一标识（用于状态管理和匹配）
+    const val ID_SCREENSHOT = 1
+    const val ID_RECORDING = 2
+    const val ID_MIRRORING = 3
+    const val ID_ENVIRONMENT = 4
+    const val ID_MEDIA_PROJECTION = 5
+    const val ID_MEDIA_LIBRARY = 6
+    const val ID_MEDIA_ROUTER = 7
+    const val ID_FILE_CHANGES = 8
+    const val ID_SCREENSHOT_FAKER = 9
+}

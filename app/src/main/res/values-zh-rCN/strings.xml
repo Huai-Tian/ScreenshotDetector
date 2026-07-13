@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">截图检测</string>
+    <string name="confirm">确定</string>
+    <string name="cancel">取消</string>
+    <string name="config_detect_options">配置检测项</string>
+    <string name="key_press_screenshot">按键截屏</string>
+    <string name="media_library">媒体库</string>
+    <string name="file_changes">文件变化</string>
+    <string name="screen_recording">屏幕录制</string>
+    <string name="MediaProjection_state">MediaProjection状态</string>
+    <string name="MediaRouter_state">MediaRouter状态</string>
+    <string name="basic_device_environment">基础环境</string>
+    <string name="screen_mirroring">屏幕共享</string>
+    <string name="ScreenshotFaker">ScreenshotFaker特征</string>
+    <string name="detect_again">重新检测</string>
+    <string name="require_higher_android_version">需要更高的Android版本</string>
+    <string name="status_detected">检测到</string>
+    <string name="status_normal">正常</string>
 </resources>

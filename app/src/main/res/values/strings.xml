@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">ScreenshotDetector</string>
+    <string name="confirm">Confirm</string>
+    <string name="cancel">Cancel</string>
+    <string name="config_detect_options">Config detect options</string>
+    <string name="key_press_screenshot">Key press screenshot</string>
+    <string name="screen_recording">Screen recording</string>
+    <string name="screen_mirroring">Screen mirroring</string>
+    <string name="media_library">Media library</string>
+    <string name="file_changes">File changes</string>
+    <string name="MediaProjection_state">MediaProjection state</string>
+    <string name="MediaRouter_state">MediaRouter state</string>
+    <string name="basic_device_environment">Basic device environment</string>
+    <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
+    <string name="detect_again">Detect again</string>
+    <string name="require_higher_android_version">Require higher Android version</string>
+    <string name="status_detected">Detected</string>
+    <string name="status_normal">Normal</string>
 </resources>

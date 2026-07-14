@@ -65,12 +65,14 @@ fun HomeCompose(
     onStartKeyPressDetection: (onDetected: () -> Unit) -> Unit = {},
     onStopKeyPressDetection: () -> Unit = {},
     onStartScreenRecordingDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
-    onStopScreenRecordingDetection: () -> Unit = {}
+    onStopScreenRecordingDetection: () -> Unit = {},
+    onStartMirroringDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
+    onStopMirroringDetection: () -> Unit = {},
+    onStartMediaProjectionDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },   // 新增
+    onStopMediaProjectionDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    // 配置开关状态
     var option by remember { mutableStateOf(true) }
     var detectKeyPressScreenshot by remember { mutableStateOf(Auxiliary.KeyPressDetectionAvailable) }
     var detectScreenRecord by remember { mutableStateOf(Auxiliary.ScreenRecordingDetectionAvailable) }
@@ -81,13 +83,8 @@ fun HomeCompose(
     var monitorMediaRouter by remember { mutableStateOf(false) }
     var monitorFileChanges by remember { mutableStateOf(false) }
     var detectScreenShotFaker by remember { mutableStateOf(false) }
-
-    // UI 状态
     var isLoading by remember { mutableStateOf(true) }
-
-    // 检测项状态：Map<检测项ID, 是否异常 (true=检测到)>
     val detectionStatus = remember { mutableStateMapOf<Int, Boolean>() }
-
     val isDetectionConfigValid by remember {
         derivedStateOf {
             detectKeyPressScreenshot || detectScreenRecord || detectScreenShare ||
@@ -95,12 +92,12 @@ fun HomeCompose(
                     monitorMediaRouter || monitorFileChanges || detectScreenShotFaker
         }
     }
-
-    // 组件销毁时停止所有检测
     DisposableEffect(Unit) {
         onDispose {
             onStopKeyPressDetection()
             onStopScreenRecordingDetection()
+            onStopMirroringDetection()
+            onStopMediaProjectionDetection()
         }
     }
 
@@ -122,7 +119,7 @@ fun HomeCompose(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding) // 仅保留 Scaffold 的内边距（避开状态栏和 TopBar）
+                .padding(padding)
         ) {
             when {
                 isLoading -> {
@@ -139,7 +136,7 @@ fun HomeCompose(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(16.dp), // 少量边距，使文字不贴边
+                                .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(
                                 12.dp,
                                 Alignment.CenterVertically
@@ -304,6 +301,7 @@ fun HomeCompose(
                                 // 1. 停止之前可能运行的检测
                                 onStopKeyPressDetection()
                                 onStopScreenRecordingDetection()
+                                onStopMirroringDetection()
                                 // 2. 清空状态，添加启用的检测项（初始正常）
                                 detectionStatus.clear()
                                 if (detectKeyPressScreenshot) {
@@ -345,6 +343,18 @@ fun HomeCompose(
                                     onStartScreenRecordingDetection(
                                         { detectionStatus[Auxiliary.ID_RECORDING] = true },
                                         { detectionStatus[Auxiliary.ID_RECORDING] = false }
+                                    )
+                                }
+                                if (detectScreenShare) {
+                                    onStartMirroringDetection(
+                                        { detectionStatus[Auxiliary.ID_MIRRORING] = true },
+                                        { detectionStatus[Auxiliary.ID_MIRRORING] = false }
+                                    )
+                                }
+                                if (monitorMediaProjectionState) {
+                                    onStartMediaProjectionDetection(
+                                        { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = true },
+                                        { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false }
                                     )
                                 }
 

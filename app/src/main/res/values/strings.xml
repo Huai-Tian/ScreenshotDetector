@@ -13,7 +13,6 @@
     <string name="basic_device_environment">Basic device environment</string>
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
     <string name="detect_again">Detect again</string>
-    <string name="require_higher_android_version">Require higher Android version</string>
     <string name="status_detected">Detected</string>
     <string name="status_normal">Normal</string>
 </resources>

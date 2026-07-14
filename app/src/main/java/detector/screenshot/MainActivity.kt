@@ -1,46 +1,43 @@
 package detector.screenshot
 
-import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.RequiresApi
 import detector.screenshot.pages.HomeCompose
+import java.util.function.Consumer
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
-
+    private var screenRecordingCallback: Consumer<Int>? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             HomeCompose(
-                onStartKeyPressDetection = { onDetected ->
-                    if (Auxiliary.isKeyPressScreenshotDetectionAvailable) startKeyPressDetection(
-                        onDetected
-                    )
-                },
-                onStopKeyPressDetection = {
-                    stopKeyPressDetection()
-                }
+                onStartKeyPressDetection = ::startKeyPressDetection,
+                onStopKeyPressDetection = ::stopKeyPressDetection,
+                onStartScreenRecordingDetection = ::startScreenRecordingDetection,
+                onStopScreenRecordingDetection = ::stopScreenRecordingDetection
             )
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun startKeyPressDetection(onDetected: () -> Unit) {
-        stopKeyPressDetection() // 先取消旧的
-        val callback = ScreenCaptureCallback {
-            onDetected()
+        if (Auxiliary.KeyPressDetectionAvailable) {
+            stopKeyPressDetection() // 先取消旧的
+            val callback = ScreenCaptureCallback {
+                onDetected()
+            }
+            screenCaptureCallback = callback
+            registerScreenCaptureCallback(mainExecutor, callback)
         }
-        screenCaptureCallback = callback
-        registerScreenCaptureCallback(mainExecutor, callback)
     }
 
     private fun stopKeyPressDetection() {
         screenCaptureCallback?.let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            if (Auxiliary.KeyPressDetectionAvailable) {
                 try {
                     unregisterScreenCaptureCallback(it)
                 } catch (_: Exception) {
@@ -51,8 +48,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startScreenRecordingDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+        if (Auxiliary.ScreenRecordingDetectionAvailable) {
+            stopScreenRecordingDetection()
+            val callback = Consumer<Int> { state ->
+                when (state) {
+                    WindowManager.SCREEN_RECORDING_STATE_VISIBLE -> onDetected()
+                    WindowManager.SCREEN_RECORDING_STATE_NOT_VISIBLE -> onStopped()
+                }
+            }
+            screenRecordingCallback = callback
+            val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            windowManager.addScreenRecordingCallback(mainExecutor, callback)
+        }
+    }
+
+    private fun stopScreenRecordingDetection() {
+        screenRecordingCallback?.let {
+            if (Auxiliary.ScreenRecordingDetectionAvailable) {
+                try {
+                    val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+                    windowManager.removeScreenRecordingCallback(it)
+                } catch (_: Exception) {
+                }
+            }
+            screenRecordingCallback = null
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopKeyPressDetection()
+        stopScreenRecordingDetection()
     }
 }

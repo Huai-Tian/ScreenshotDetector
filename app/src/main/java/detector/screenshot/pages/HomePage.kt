@@ -1,7 +1,6 @@
 package detector.screenshot.pages
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,7 +44,6 @@ import detector.screenshot.Auxiliary
 import detector.screenshot.R
 import kotlinx.coroutines.launch
 
-// 普通函数：根据 ID 获取检测项显示名称（通过 Context 获取资源）
 private fun getItemName(context: Context, id: Int): String {
     return when (id) {
         Auxiliary.ID_SCREENSHOT -> context.getString(R.string.key_press_screenshot)
@@ -65,15 +63,17 @@ private fun getItemName(context: Context, id: Int): String {
 @Composable
 fun HomeCompose(
     onStartKeyPressDetection: (onDetected: () -> Unit) -> Unit = {},
-    onStopKeyPressDetection: () -> Unit = {}
+    onStopKeyPressDetection: () -> Unit = {},
+    onStartScreenRecordingDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
+    onStopScreenRecordingDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     // 配置开关状态
     var option by remember { mutableStateOf(true) }
-    var detectKeyPressScreenshot by remember { mutableStateOf(Auxiliary.isKeyPressScreenshotDetectionAvailable) }
-    var detectScreenRecord by remember { mutableStateOf(true) }
+    var detectKeyPressScreenshot by remember { mutableStateOf(Auxiliary.KeyPressDetectionAvailable) }
+    var detectScreenRecord by remember { mutableStateOf(Auxiliary.ScreenRecordingDetectionAvailable) }
     var detectScreenShare by remember { mutableStateOf(true) }
     var basicEnvironmentCheck by remember { mutableStateOf(true) }
     var monitorMediaProjectionState by remember { mutableStateOf(true) }
@@ -81,7 +81,6 @@ fun HomeCompose(
     var monitorMediaRouter by remember { mutableStateOf(false) }
     var monitorFileChanges by remember { mutableStateOf(false) }
     var detectScreenShotFaker by remember { mutableStateOf(false) }
-    val requireHigherAndroid = stringResource(R.string.require_higher_android_version)
 
     // UI 状态
     var isLoading by remember { mutableStateOf(true) }
@@ -101,6 +100,7 @@ fun HomeCompose(
     DisposableEffect(Unit) {
         onDispose {
             onStopKeyPressDetection()
+            onStopScreenRecordingDetection()
         }
     }
 
@@ -175,7 +175,6 @@ fun HomeCompose(
             }
         }
 
-        // 配置对话框（保持不变）
         if (option) {
             AlertDialog(
                 onDismissRequest = { option = false },
@@ -192,17 +191,9 @@ fun HomeCompose(
                             Switch(
                                 checked = detectKeyPressScreenshot,
                                 onCheckedChange = {
-                                    if (Auxiliary.isKeyPressScreenshotDetectionAvailable) {
-                                        detectKeyPressScreenshot = it
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            requireHigherAndroid,
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
+                                    detectKeyPressScreenshot = it
                                 },
-                                enabled = Auxiliary.isKeyPressScreenshotDetectionAvailable
+                                enabled = Auxiliary.KeyPressDetectionAvailable
                             )
                         }
                         // 录屏检测
@@ -214,7 +205,10 @@ fun HomeCompose(
                             Text(text = stringResource(R.string.screen_recording))
                             Switch(
                                 checked = detectScreenRecord,
-                                onCheckedChange = { detectScreenRecord = it }
+                                onCheckedChange = {
+                                    detectScreenRecord = it
+                                },
+                                enabled = Auxiliary.ScreenRecordingDetectionAvailable
                             )
                         }
                         // 投屏检测
@@ -309,7 +303,7 @@ fun HomeCompose(
                             scope.launch {
                                 // 1. 停止之前可能运行的检测
                                 onStopKeyPressDetection()
-
+                                onStopScreenRecordingDetection()
                                 // 2. 清空状态，添加启用的检测项（初始正常）
                                 detectionStatus.clear()
                                 if (detectKeyPressScreenshot) {
@@ -339,16 +333,19 @@ fun HomeCompose(
                                 if (detectScreenShotFaker) {
                                     detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false
                                 }
-
-                                // 停止转圈，显示检测卡片
                                 isLoading = false
 
                                 // 3. 启动截屏检测（如果启用且可用）
                                 if (detectKeyPressScreenshot) {
                                     onStartKeyPressDetection {
-                                        // 截屏触发，更新状态为异常
                                         detectionStatus[Auxiliary.ID_SCREENSHOT] = true
                                     }
+                                }
+                                if (detectScreenRecord) {
+                                    onStartScreenRecordingDetection(
+                                        { detectionStatus[Auxiliary.ID_RECORDING] = true },
+                                        { detectionStatus[Auxiliary.ID_RECORDING] = false }
+                                    )
                                 }
 
                                 // 4. 可在此启动其他检测

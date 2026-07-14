@@ -14,7 +14,6 @@
     <string name="screen_mirroring">屏幕共享</string>
     <string name="ScreenshotFaker">ScreenshotFaker特征</string>
     <string name="detect_again">重新检测</string>
-    <string name="require_higher_android_version">需要更高的Android版本</string>
     <string name="status_detected">检测到</string>
     <string name="status_normal">正常</string>
 </resources>

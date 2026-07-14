@@ -1,11 +1,9 @@
 package detector.screenshot
 
 import android.os.Build
-import android.util.Log
 import android.view.Display
 
 object Auxiliary {
-    const val TAG = "ScreenshotDetector"
     const val ID_SCREENSHOT = 1
     const val ID_RECORDING = 2
     const val ID_MIRRORING = 3
@@ -19,8 +17,6 @@ object Auxiliary {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     val ScreenRecordingDetectionAvailable =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM
-
-    fun log(content: String) = Log.d(TAG, content)
 
     fun isNonDefaultDisplay(display: Display) = display.displayId != Display.DEFAULT_DISPLAY
 

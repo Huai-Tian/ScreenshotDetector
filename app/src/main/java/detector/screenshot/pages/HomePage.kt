@@ -68,8 +68,10 @@ fun HomeCompose(
     onStopScreenRecordingDetection: () -> Unit = {},
     onStartMirroringDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
     onStopMirroringDetection: () -> Unit = {},
-    onStartMediaProjectionDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },   // 新增
-    onStopMediaProjectionDetection: () -> Unit = {}
+    onStartMediaProjectionDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
+    onStopMediaProjectionDetection: () -> Unit = {},
+    onStartMediaRouterDetection: (onConnected: () -> Unit, onDisconnected: () -> Unit) -> Unit = { _, _ -> },
+    onStopMediaRouterDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,7 +85,7 @@ fun HomeCompose(
     var monitorMediaRouter by remember { mutableStateOf(false) }
     var monitorFileChanges by remember { mutableStateOf(false) }
     var detectScreenShotFaker by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
     val detectionStatus = remember { mutableStateMapOf<Int, Boolean>() }
     val isDetectionConfigValid by remember {
         derivedStateOf {
@@ -92,12 +94,16 @@ fun HomeCompose(
                     monitorMediaRouter || monitorFileChanges || detectScreenShotFaker
         }
     }
+    fun stopAllDetections() {
+        onStopKeyPressDetection()
+        onStopScreenRecordingDetection()
+        onStopMirroringDetection()
+        onStopMediaProjectionDetection()
+        onStopMediaRouterDetection()
+    }
     DisposableEffect(Unit) {
         onDispose {
-            onStopKeyPressDetection()
-            onStopScreenRecordingDetection()
-            onStopMirroringDetection()
-            onStopMediaProjectionDetection()
+            stopAllDetections()
         }
     }
 
@@ -299,9 +305,7 @@ fun HomeCompose(
                         onClick = {
                             scope.launch {
                                 // 1. 停止之前可能运行的检测
-                                onStopKeyPressDetection()
-                                onStopScreenRecordingDetection()
-                                onStopMirroringDetection()
+                                stopAllDetections()
                                 // 2. 清空状态，添加启用的检测项（初始正常）
                                 detectionStatus.clear()
                                 if (detectKeyPressScreenshot) {
@@ -355,6 +359,12 @@ fun HomeCompose(
                                     onStartMediaProjectionDetection(
                                         { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = true },
                                         { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false }
+                                    )
+                                }
+                                if (monitorMediaRouter){
+                                    onStartMediaRouterDetection(
+                                        { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = true },
+                                        { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false }
                                     )
                                 }
 

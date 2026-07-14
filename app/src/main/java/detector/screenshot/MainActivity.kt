@@ -6,6 +6,9 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.mediarouter.media.MediaControlIntent
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
 import java.util.function.Consumer
 
@@ -14,6 +17,8 @@ class MainActivity : ComponentActivity() {
     private var screenRecordingCallback: Consumer<Int>? = null
     private var displayListener: DisplayManager.DisplayListener? = null
     private var mediaProjectionListener: DisplayManager.DisplayListener? = null
+    private var mediaRouter: MediaRouter? = null
+    private var mediaRouterCallback: MediaRouter.Callback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,7 +32,9 @@ class MainActivity : ComponentActivity() {
                 onStartMirroringDetection = ::startMirroringDetection,
                 onStopMirroringDetection = ::stopMirroringDetection,
                 onStartMediaProjectionDetection = ::startMediaProjectionDetection,
-                onStopMediaProjectionDetection = ::stopMediaProjectionDetection
+                onStopMediaProjectionDetection = ::stopMediaProjectionDetection,
+                onStartMediaRouterDetection = ::startMediaRouterDetection,
+                onStopMediaRouterDetection = ::stopMediaRouterDetection
             )
         }
     }
@@ -47,7 +54,8 @@ class MainActivity : ComponentActivity() {
             if (Auxiliary.KeyPressDetectionAvailable) {
                 try {
                     unregisterScreenCaptureCallback(it)
-                } catch (_: Exception) { /* ignore */ }
+                } catch (_: Exception) { /* ignore */
+                }
             }
             screenCaptureCallback = null
         }
@@ -75,7 +83,8 @@ class MainActivity : ComponentActivity() {
                 try {
                     val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
                     windowManager.removeScreenRecordingCallback(it)
-                } catch (_: Exception) { /* ignore */ }
+                } catch (_: Exception) { /* ignore */
+                }
             }
             screenRecordingCallback = null
         }
@@ -132,7 +141,8 @@ class MainActivity : ComponentActivity() {
         displayListener?.let {
             try {
                 (getSystemService(DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it)
-            } catch (_: Exception) { /* ignore */ }
+            } catch (_: Exception) { /* ignore */
+            }
             displayListener = null
         }
     }
@@ -153,9 +163,60 @@ class MainActivity : ComponentActivity() {
         mediaProjectionListener?.let {
             try {
                 (getSystemService(DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it)
-            } catch (_: Exception) { /* ignore */ }
+            } catch (_: Exception) { /* ignore */
+            }
             mediaProjectionListener = null
         }
+    }
+
+    // ---------- MediaRouter 检测 ----------
+    private fun startMediaRouterDetection(onConnected: () -> Unit, onDisconnected: () -> Unit) {
+        stopMediaRouterDetection()
+        mediaRouter = MediaRouter.getInstance(this)
+        val selector = MediaRouteSelector.Builder()
+            .addControlCategory(MediaControlIntent.CATEGORY_LIVE_VIDEO)
+            .build()
+        val callback = object : MediaRouter.Callback() {
+            @Deprecated("Deprecated in Java")
+            override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                if (!route.isDefault) onConnected()
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                if (mediaRouter?.routes?.any { !it.isDefault } == false) {
+                    onDisconnected()
+                }
+            }
+
+            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                if (!route.isDefault) onConnected()
+            }
+
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                if (mediaRouter?.routes?.any { !it.isDefault } == false) {
+                    onDisconnected()
+                }
+            }
+
+            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                // 可选
+            }
+        }
+        mediaRouterCallback = callback
+        mediaRouter?.addCallback(selector, callback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY)
+
+        if (mediaRouter?.routes?.any { !it.isDefault } == true) {
+            onConnected()
+        }
+    }
+
+    private fun stopMediaRouterDetection() {
+        mediaRouterCallback?.let {
+            mediaRouter?.removeCallback(it)
+        }
+        mediaRouterCallback = null
+        mediaRouter = null
     }
 
     override fun onDestroy() {
@@ -164,5 +225,6 @@ class MainActivity : ComponentActivity() {
         stopScreenRecordingDetection()
         stopMirroringDetection()
         stopMediaProjectionDetection()
+        stopMediaRouterDetection()
     }
 }

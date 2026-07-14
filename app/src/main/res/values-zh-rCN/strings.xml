@@ -14,6 +14,7 @@
     <string name="screen_mirroring">屏幕共享</string>
     <string name="ScreenshotFaker">ScreenshotFaker特征</string>
     <string name="detect_again">重新检测</string>
+    <string name="require_permission">工作需要权限</string>
     <string name="status_abnormal">异常</string>
     <string name="status_normal">正常</string>
 </resources>

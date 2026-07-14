@@ -13,6 +13,7 @@
     <string name="basic_device_environment">Basic device environment</string>
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
     <string name="detect_again">Detect again</string>
+    <string name="require_permission">Require permission to work</string>
     <string name="status_abnormal">Abnormal</string>
     <string name="status_normal">Normal</string>
 </resources>

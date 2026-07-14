@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
                 pendingMediaLibraryCallback = null
             }
         } else {
-            Toast.makeText(this, "需要存储权限才能监控截图", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.require_permission), Toast.LENGTH_SHORT).show()
             pendingMediaLibraryCallback = null
         }
     }

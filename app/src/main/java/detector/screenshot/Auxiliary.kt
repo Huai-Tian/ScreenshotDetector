@@ -1,13 +1,16 @@
 package detector.screenshot
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import android.view.Display
+import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
@@ -76,6 +79,18 @@ object Auxiliary {
             }
         }
     }
+
+    fun isEnvironmentRisky(context: Context) =
+        Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1
+                || Settings.Global.getInt(
+            context.contentResolver,
+            Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
+            0
+        ) == 1
+                || (context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager).getEnabledAccessibilityServiceList(
+            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+        ).isNotEmpty()
+
 
     fun hasStoragePermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

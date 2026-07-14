@@ -1,6 +1,7 @@
 package detector.screenshot
 
 import android.Manifest
+import android.content.Context
 import android.database.ContentObserver
 import android.hardware.display.DisplayManager
 import android.net.Uri
@@ -11,7 +12,9 @@ import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.Settings
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,6 +38,9 @@ class MainActivity : ComponentActivity() {
     private var pendingMediaLibraryCallback: (() -> Unit)? = null
     private var fileObserver: FileObserver? = null
     private var lastFileObserverTime = 0L
+    private var environmentObserver: ContentObserver? = null
+    private var accessibilityListener: AccessibilityManager.AccessibilityStateChangeListener? = null
+    private var lastEnvironmentRisky = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -68,7 +74,9 @@ class MainActivity : ComponentActivity() {
                 onStartMediaLibraryDetection = ::startMediaLibraryDetection,
                 onStopMediaLibraryDetection = ::stopMediaLibraryDetection,
                 onStartFileChangesDetection = ::startFileChangesDetection,
-                onStopFileChangesDetection = ::stopFileChangesDetection
+                onStopFileChangesDetection = ::stopFileChangesDetection,
+                onStartEnvironmentDetection = ::startEnvironmentDetection,
+                onStopEnvironmentDetection = ::stopEnvironmentDetection
             )
         }
     }
@@ -318,6 +326,58 @@ class MainActivity : ComponentActivity() {
         fileObserver = null
     }
 
+    // ---------- 环境安全检测 ----------
+    private fun startEnvironmentDetection(onRisky: () -> Unit, onSafe: () -> Unit) {
+        stopEnvironmentDetection()
+        lastEnvironmentRisky = false
+        val context = this
+
+        // 1. 监听全局设置变化（USB调试、开发者选项）
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                checkEnvironmentState(context, onRisky, onSafe)
+            }
+        }
+        environmentObserver = observer
+        contentResolver.registerContentObserver(
+            Settings.Global.CONTENT_URI,
+            true,
+            observer
+        )
+
+        // 2. 监听无障碍服务状态变化
+        val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val listener = AccessibilityManager.AccessibilityStateChangeListener {
+            checkEnvironmentState(context, onRisky, onSafe)
+        }
+        accessibilityListener = listener
+        am.addAccessibilityStateChangeListener(listener)
+
+        // 3. 立即检查一次当前状态
+        checkEnvironmentState(context, onRisky, onSafe)
+    }
+
+    private fun stopEnvironmentDetection() {
+        environmentObserver?.let {
+            contentResolver.unregisterContentObserver(it)
+            environmentObserver = null
+        }
+        accessibilityListener?.let {
+            val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
+            am.removeAccessibilityStateChangeListener(it)
+            accessibilityListener = null
+        }
+    }
+
+    private fun checkEnvironmentState(context: Context, onRisky: () -> Unit, onSafe: () -> Unit) {
+        val risky = Auxiliary.isEnvironmentRisky(context)
+        if (risky != lastEnvironmentRisky) {
+            lastEnvironmentRisky = risky
+            if (risky) onRisky()
+            else onSafe()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopKeyPressDetection()
@@ -326,5 +386,7 @@ class MainActivity : ComponentActivity() {
         stopMediaProjectionDetection()
         stopMediaRouterDetection()
         stopMediaLibraryDetection()
+        stopFileChangesDetection()
+        stopEnvironmentDetection()
     }
 }

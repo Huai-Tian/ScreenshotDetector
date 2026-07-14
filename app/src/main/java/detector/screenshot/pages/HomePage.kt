@@ -156,7 +156,7 @@ fun HomeCompose(
                                     )
                                     Text(
                                         text = if (isAbnormal) {
-                                            stringResource(R.string.status_detected)
+                                            stringResource(R.string.status_abnormal)
                                         } else {
                                             stringResource(R.string.status_normal)
                                         },

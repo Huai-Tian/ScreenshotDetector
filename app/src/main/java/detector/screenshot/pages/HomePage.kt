@@ -71,7 +71,9 @@ fun HomeCompose(
     onStartMediaProjectionDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
     onStopMediaProjectionDetection: () -> Unit = {},
     onStartMediaRouterDetection: (onConnected: () -> Unit, onDisconnected: () -> Unit) -> Unit = { _, _ -> },
-    onStopMediaRouterDetection: () -> Unit = {}
+    onStopMediaRouterDetection: () -> Unit = {},
+    onStartMediaLibraryDetection: (onDetected: () -> Unit) -> Unit = {},
+    onStopMediaLibraryDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -100,6 +102,7 @@ fun HomeCompose(
         onStopMirroringDetection()
         onStopMediaProjectionDetection()
         onStopMediaRouterDetection()
+        onStopMediaLibraryDetection()
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -335,7 +338,6 @@ fun HomeCompose(
                                 if (detectScreenShotFaker) {
                                     detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false
                                 }
-                                isLoading = false
 
                                 // 3. 启动截屏检测（如果启用且可用）
                                 if (detectKeyPressScreenshot) {
@@ -366,6 +368,11 @@ fun HomeCompose(
                                         { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = true },
                                         { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false }
                                     )
+                                }
+                                if (monitorMediaLibrary) {
+                                    onStartMediaLibraryDetection {
+                                        detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = true
+                                    }
                                 }
 
                                 // 4. 可在此启动其他检测

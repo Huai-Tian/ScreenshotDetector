@@ -1,17 +1,27 @@
 package detector.screenshot
 
+import android.Manifest
+import android.content.ContentResolver
+import android.database.ContentObserver
 import android.hardware.display.DisplayManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
 import java.util.function.Consumer
-
+private const val SCREENSHOT_TIME_THRESHOLD = 15
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
     private var screenRecordingCallback: Consumer<Int>? = null
@@ -19,6 +29,21 @@ class MainActivity : ComponentActivity() {
     private var mediaProjectionListener: DisplayManager.DisplayListener? = null
     private var mediaRouter: MediaRouter? = null
     private var mediaRouterCallback: MediaRouter.Callback? = null
+    private var mediaLibraryObserver: ContentObserver? = null
+    private var pendingMediaLibraryCallback: (() -> Unit)? = null
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingMediaLibraryCallback?.let {
+                startMediaLibraryDetection(it)
+                pendingMediaLibraryCallback = null
+            }
+        } else {
+            Toast.makeText(this, "需要存储权限才能监控截图", Toast.LENGTH_SHORT).show()
+            pendingMediaLibraryCallback = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,7 +59,9 @@ class MainActivity : ComponentActivity() {
                 onStartMediaProjectionDetection = ::startMediaProjectionDetection,
                 onStopMediaProjectionDetection = ::stopMediaProjectionDetection,
                 onStartMediaRouterDetection = ::startMediaRouterDetection,
-                onStopMediaRouterDetection = ::stopMediaRouterDetection
+                onStopMediaRouterDetection = ::stopMediaRouterDetection,
+                onStartMediaLibraryDetection = ::startMediaLibraryDetection,
+                onStopMediaLibraryDetection = ::stopMediaLibraryDetection
             )
         }
     }
@@ -219,6 +246,82 @@ class MainActivity : ComponentActivity() {
         mediaRouter = null
     }
 
+    // ---------- 媒体库监听 ----------
+    private fun startMediaLibraryDetection(onDetected: () -> Unit) {
+        if (!Auxiliary.hasStoragePermission(this)) {
+            pendingMediaLibraryCallback = onDetected
+            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_IMAGES
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+            requestPermissionLauncher.launch(permission)
+            return
+        }
+        stopMediaLibraryDetection()
+        val contentResolver = contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                super.onChange(selfChange, uri)
+                checkForScreenshot(contentResolver, onDetected)
+            }
+        }
+        mediaLibraryObserver = observer
+        contentResolver.registerContentObserver(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            true,
+            observer
+        )
+    }
+
+    private fun stopMediaLibraryDetection() {
+        mediaLibraryObserver?.let {
+            contentResolver.unregisterContentObserver(it)
+            mediaLibraryObserver = null
+        }
+    }
+
+    private fun checkForScreenshot(contentResolver: ContentResolver, onDetected: () -> Unit) {
+        val timeThreshold = System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.RELATIVE_PATH,
+            MediaStore.Images.Media.DATA,
+            MediaStore.Images.Media.DATE_ADDED
+        )
+
+        // 使用 LOWER() 忽略大小写，提高匹配率
+        val selection = "${MediaStore.Images.Media.DATE_ADDED} > ? AND (" +
+                "LOWER(${MediaStore.Images.Media.DISPLAY_NAME}) LIKE ? OR " +
+                "LOWER(${MediaStore.Images.Media.RELATIVE_PATH}) LIKE ?)"
+        val selectionArgs = arrayOf(
+            timeThreshold.toString(),
+            "%screenshot%",
+            "%screenshots%"
+        )
+
+        val cursor = contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        )
+
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val dateAdded =
+                    it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED))
+                val diff = System.currentTimeMillis() / 1000 - dateAdded
+                // 再次确认时间差在阈值内（防止查询条件误匹配）
+                if (diff <= SCREENSHOT_TIME_THRESHOLD) {
+                    onDetected()
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopKeyPressDetection()
@@ -226,5 +329,6 @@ class MainActivity : ComponentActivity() {
         stopMirroringDetection()
         stopMediaProjectionDetection()
         stopMediaRouterDetection()
+        stopMediaLibraryDetection()
     }
 }

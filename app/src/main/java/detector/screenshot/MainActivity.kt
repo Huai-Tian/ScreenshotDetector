@@ -1,12 +1,13 @@
 package detector.screenshot
 
 import android.Manifest
-import android.content.ContentResolver
 import android.database.ContentObserver
 import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -20,8 +21,9 @@ import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
+import java.io.File
 import java.util.function.Consumer
-private const val SCREENSHOT_TIME_THRESHOLD = 15
+
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
     private var screenRecordingCallback: Consumer<Int>? = null
@@ -31,6 +33,9 @@ class MainActivity : ComponentActivity() {
     private var mediaRouterCallback: MediaRouter.Callback? = null
     private var mediaLibraryObserver: ContentObserver? = null
     private var pendingMediaLibraryCallback: (() -> Unit)? = null
+    private var fileObserver: FileObserver? = null
+    private var lastFileObserverTime = 0L
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -61,7 +66,9 @@ class MainActivity : ComponentActivity() {
                 onStartMediaRouterDetection = ::startMediaRouterDetection,
                 onStopMediaRouterDetection = ::stopMediaRouterDetection,
                 onStartMediaLibraryDetection = ::startMediaLibraryDetection,
-                onStopMediaLibraryDetection = ::stopMediaLibraryDetection
+                onStopMediaLibraryDetection = ::stopMediaLibraryDetection,
+                onStartFileChangesDetection = ::startFileChangesDetection,
+                onStopFileChangesDetection = ::stopFileChangesDetection
             )
         }
     }
@@ -263,7 +270,7 @@ class MainActivity : ComponentActivity() {
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 super.onChange(selfChange, uri)
-                checkForScreenshot(contentResolver, onDetected)
+                Auxiliary.checkForScreenshot(contentResolver, onDetected)
             }
         }
         mediaLibraryObserver = observer
@@ -281,45 +288,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkForScreenshot(contentResolver: ContentResolver, onDetected: () -> Unit) {
-        val timeThreshold = System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD
-        val projection = arrayOf(
-            MediaStore.Images.Media._ID,
-            MediaStore.Images.Media.DISPLAY_NAME,
-            MediaStore.Images.Media.RELATIVE_PATH,
-            MediaStore.Images.Media.DATA,
-            MediaStore.Images.Media.DATE_ADDED
+    // ---------- FileObserver 检测 ----------
+    private fun startFileChangesDetection(onDetected: () -> Unit) {
+        stopFileChangesDetection()
+        val screenshotsDir = File(
+            Environment.getExternalStorageDirectory(),
+            "Pictures/Screenshots"
         )
-
-        // 使用 LOWER() 忽略大小写，提高匹配率
-        val selection = "${MediaStore.Images.Media.DATE_ADDED} > ? AND (" +
-                "LOWER(${MediaStore.Images.Media.DISPLAY_NAME}) LIKE ? OR " +
-                "LOWER(${MediaStore.Images.Media.RELATIVE_PATH}) LIKE ?)"
-        val selectionArgs = arrayOf(
-            timeThreshold.toString(),
-            "%screenshot%",
-            "%screenshots%"
-        )
-
-        val cursor = contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            selectionArgs,
-            "${MediaStore.Images.Media.DATE_ADDED} DESC"
-        )
-
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val dateAdded =
-                    it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED))
-                val diff = System.currentTimeMillis() / 1000 - dateAdded
-                // 再次确认时间差在阈值内（防止查询条件误匹配）
-                if (diff <= SCREENSHOT_TIME_THRESHOLD) {
-                    onDetected()
+        if (!screenshotsDir.exists()) return
+        val observer = object : FileObserver(screenshotsDir, CREATE or MOVED_TO) {
+            override fun onEvent(event: Int, path: String?) {
+                if (path != null) {
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val now = System.currentTimeMillis()
+                        if (now - lastFileObserverTime > 2000) {
+                            lastFileObserverTime = now
+                            onDetected()
+                        }
+                    }, 300)
                 }
             }
         }
+        fileObserver = observer
+        observer.startWatching()
+    }
+
+    private fun stopFileChangesDetection() {
+        fileObserver?.stopWatching()
+        fileObserver = null
     }
 
     override fun onDestroy() {

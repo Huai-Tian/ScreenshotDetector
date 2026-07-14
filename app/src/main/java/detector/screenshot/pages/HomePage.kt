@@ -73,7 +73,9 @@ fun HomeCompose(
     onStartMediaRouterDetection: (onConnected: () -> Unit, onDisconnected: () -> Unit) -> Unit = { _, _ -> },
     onStopMediaRouterDetection: () -> Unit = {},
     onStartMediaLibraryDetection: (onDetected: () -> Unit) -> Unit = {},
-    onStopMediaLibraryDetection: () -> Unit = {}
+    onStopMediaLibraryDetection: () -> Unit = {},
+    onStartFileChangesDetection: (onDetected: () -> Unit) -> Unit = {},
+    onStopFileChangesDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -96,6 +98,7 @@ fun HomeCompose(
                     monitorMediaRouter || monitorFileChanges || detectScreenShotFaker
         }
     }
+
     fun stopAllDetections() {
         onStopKeyPressDetection()
         onStopScreenRecordingDetection()
@@ -103,6 +106,7 @@ fun HomeCompose(
         onStopMediaProjectionDetection()
         onStopMediaRouterDetection()
         onStopMediaLibraryDetection()
+        onStopFileChangesDetection()
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -363,7 +367,7 @@ fun HomeCompose(
                                         { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false }
                                     )
                                 }
-                                if (monitorMediaRouter){
+                                if (monitorMediaRouter) {
                                     onStartMediaRouterDetection(
                                         { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = true },
                                         { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false }
@@ -374,7 +378,11 @@ fun HomeCompose(
                                         detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = true
                                     }
                                 }
-
+                                if (monitorFileChanges) {
+                                    onStartFileChangesDetection {
+                                        detectionStatus[Auxiliary.ID_FILE_CHANGES] = true
+                                    }
+                                }
                                 // 4. 可在此启动其他检测
 
                                 // 5. 关闭对话框

@@ -75,7 +75,9 @@ fun HomeCompose(
     onStartMediaLibraryDetection: (onDetected: () -> Unit) -> Unit = {},
     onStopMediaLibraryDetection: () -> Unit = {},
     onStartFileChangesDetection: (onDetected: () -> Unit) -> Unit = {},
-    onStopFileChangesDetection: () -> Unit = {}
+    onStopFileChangesDetection: () -> Unit = {},
+    onStartEnvironmentDetection: (onRisky: () -> Unit, onSafe: () -> Unit) -> Unit = { _, _ -> },
+    onStopEnvironmentDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,6 +109,7 @@ fun HomeCompose(
         onStopMediaRouterDetection()
         onStopMediaLibraryDetection()
         onStopFileChangesDetection()
+        onStopEnvironmentDetection()
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -382,6 +385,12 @@ fun HomeCompose(
                                     onStartFileChangesDetection {
                                         detectionStatus[Auxiliary.ID_FILE_CHANGES] = true
                                     }
+                                }
+                                if (basicEnvironmentCheck) {
+                                    onStartEnvironmentDetection(
+                                        { detectionStatus[Auxiliary.ID_ENVIRONMENT] = true },
+                                        { detectionStatus[Auxiliary.ID_ENVIRONMENT] = false }
+                                    )
                                 }
                                 // 4. 可在此启动其他检测
 

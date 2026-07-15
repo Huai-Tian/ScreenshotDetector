@@ -25,15 +25,8 @@ import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import java.io.File
 import java.util.function.Consumer
-import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
@@ -49,13 +42,10 @@ class MainActivity : ComponentActivity() {
     private var isBehaviorDetectionActive = false
     private var lastBehaviorRisky = false
     private var behaviorRiskyCallback: Pair<() -> Unit, () -> Unit>? = null
-    private var behaviorPollingJob: Job? = null
     private var environmentObserver: ContentObserver? = null
     private var accessibilityListener: AccessibilityManager.AccessibilityStateChangeListener? = null
     private var lastEnvironmentRisky = false
     private val behaviorHandler = Handler(Looper.getMainLooper())
-
-    // 用于在对话框显示时暂停可疑行为检测
     private var isBehaviorPaused = false
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -410,15 +400,13 @@ class MainActivity : ComponentActivity() {
         behaviorHandler.removeCallbacksAndMessages(null)
         behaviorHandler.postDelayed({
             isBehaviorPaused = false
-        }, 500) // 保留延迟，防止对话框关闭瞬间触发
+        }, 500)
     }
 
     private fun startBehaviorDetection(onRisky: () -> Unit, onSafe: () -> Unit) {
         stopBehaviorDetection()
         isBehaviorDetectionActive = true
         behaviorRiskyCallback = onRisky to onSafe
-
-        startBehaviorPolling(onRisky, onSafe)
         checkBehaviorState(onRisky, onSafe)
     }
 
@@ -426,22 +414,6 @@ class MainActivity : ComponentActivity() {
         isBehaviorDetectionActive = false
         behaviorRiskyCallback = null
         lastBehaviorRisky = false
-        stopBehaviorPolling()
-    }
-
-    private fun startBehaviorPolling(onRisky: () -> Unit, onSafe: () -> Unit) {
-        stopBehaviorPolling()
-        behaviorPollingJob = CoroutineScope(Dispatchers.Main).launch {
-            while (isActive) {
-                checkBehaviorState(onRisky, onSafe)
-                delay(Auxiliary.BEHAVIOR_POLL_INTERVAL.milliseconds)
-            }
-        }
-    }
-
-    private fun stopBehaviorPolling() {
-        behaviorPollingJob?.cancel()
-        behaviorPollingJob = null
     }
 
     private fun isBehaviorRisky(): Boolean {
@@ -458,16 +430,6 @@ class MainActivity : ComponentActivity() {
             lastBehaviorRisky = risky
             if (risky) onRisky()
             else onSafe()
-        }
-    }
-
-    // ---------- 生命周期回调 ----------
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                checkBehaviorState(onRisky, onSafe)
-            }
         }
     }
 

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -25,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -43,6 +45,10 @@ import androidx.compose.ui.unit.sp
 import detector.screenshot.Auxiliary
 import detector.screenshot.R
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 
 private fun getItemName(context: Context, id: Int): String {
     return when (id) {
@@ -54,6 +60,7 @@ private fun getItemName(context: Context, id: Int): String {
         Auxiliary.ID_MEDIA_LIBRARY -> context.getString(R.string.media_library)
         Auxiliary.ID_MEDIA_ROUTER -> context.getString(R.string.MediaRouter_state)
         Auxiliary.ID_FILE_CHANGES -> context.getString(R.string.file_changes)
+        Auxiliary.ID_BEHAVIOR -> context.getString(R.string.suspicious_behavior)
         Auxiliary.ID_SCREENSHOT_FAKER -> context.getString(R.string.ScreenshotFaker)
         else -> "Unknown"
     }
@@ -77,11 +84,21 @@ fun HomeCompose(
     onStartFileChangesDetection: (onDetected: () -> Unit) -> Unit = {},
     onStopFileChangesDetection: () -> Unit = {},
     onStartEnvironmentDetection: (onRisky: () -> Unit, onSafe: () -> Unit) -> Unit = { _, _ -> },
-    onStopEnvironmentDetection: () -> Unit = {}
+    onStopEnvironmentDetection: () -> Unit = {},
+    onStartBehaviorDetection: (onRisky: () -> Unit, onSafe: () -> Unit) -> Unit = { _, _ -> },
+    onStopBehaviorDetection: () -> Unit = {},
+    onDialogShow: () -> Unit = {},
+    onDialogDismiss: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var option by remember { mutableStateOf(true) }
+
+    LaunchedEffect(option) {
+        if (option) onDialogShow()
+        else onDialogDismiss()
+    }
+
     var detectKeyPressScreenshot by remember { mutableStateOf(Auxiliary.KeyPressDetectionAvailable) }
     var detectScreenRecord by remember { mutableStateOf(Auxiliary.ScreenRecordingDetectionAvailable) }
     var detectScreenShare by remember { mutableStateOf(true) }
@@ -90,14 +107,16 @@ fun HomeCompose(
     var monitorMediaLibrary by remember { mutableStateOf(true) }
     var monitorMediaRouter by remember { mutableStateOf(false) }
     var monitorFileChanges by remember { mutableStateOf(false) }
+    var detectSuspiciousBehavior by remember { mutableStateOf(false) }
     var detectScreenShotFaker by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+
     val detectionStatus = remember { mutableStateMapOf<Int, Boolean>() }
     val isDetectionConfigValid by remember {
         derivedStateOf {
             detectKeyPressScreenshot || detectScreenRecord || detectScreenShare ||
                     basicEnvironmentCheck || monitorMediaProjectionState || monitorMediaLibrary ||
-                    monitorMediaRouter || monitorFileChanges || detectScreenShotFaker
+                    monitorMediaRouter || monitorFileChanges || detectSuspiciousBehavior || detectScreenShotFaker
         }
     }
 
@@ -109,12 +128,12 @@ fun HomeCompose(
         onStopMediaRouterDetection()
         onStopMediaLibraryDetection()
         onStopFileChangesDetection()
+        onStopBehaviorDetection()
         onStopEnvironmentDetection()
     }
+
     DisposableEffect(Unit) {
-        onDispose {
-            stopAllDetections()
-        }
+        onDispose { stopAllDetections() }
     }
 
     Scaffold(
@@ -187,228 +206,218 @@ fun HomeCompose(
                 }
             }
         }
+    }
 
-        if (option) {
-            AlertDialog(
-                onDismissRequest = { option = false },
-                title = { Text(stringResource(R.string.config_detect_options)) },
-                text = {
-                    Column {
-                        // 截屏检测
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.key_press_screenshot))
-                            Switch(
-                                checked = detectKeyPressScreenshot,
-                                onCheckedChange = {
-                                    detectKeyPressScreenshot = it
-                                },
-                                enabled = Auxiliary.KeyPressDetectionAvailable
-                            )
-                        }
-                        // 录屏检测
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.screen_recording))
-                            Switch(
-                                checked = detectScreenRecord,
-                                onCheckedChange = {
-                                    detectScreenRecord = it
-                                },
-                                enabled = Auxiliary.ScreenRecordingDetectionAvailable
-                            )
-                        }
-                        // 投屏检测
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.screen_mirroring))
-                            Switch(
-                                checked = detectScreenShare,
-                                onCheckedChange = { detectScreenShare = it }
-                            )
-                        }
-                        // MediaProjection状态
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.MediaProjection_state))
-                            Switch(
-                                checked = monitorMediaProjectionState,
-                                onCheckedChange = { monitorMediaProjectionState = it }
-                            )
-                        }
-                        // 媒体库监控
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.media_library))
-                            Switch(
-                                checked = monitorMediaLibrary,
-                                onCheckedChange = { monitorMediaLibrary = it }
-                            )
-                        }
-                        // 环境检测
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.basic_device_environment))
-                            Switch(
-                                checked = basicEnvironmentCheck,
-                                onCheckedChange = { basicEnvironmentCheck = it }
-                            )
-                        }
-                        // 文件变化监控
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.file_changes))
-                            Switch(
-                                checked = monitorFileChanges,
-                                onCheckedChange = { monitorFileChanges = it }
-                            )
-                        }
-                        // MediaRouter监控
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.MediaRouter_state))
-                            Switch(
-                                checked = monitorMediaRouter,
-                                onCheckedChange = { monitorMediaRouter = it }
-                            )
-                        }
-                        // ScreenshotFaker检测
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = stringResource(R.string.ScreenshotFaker))
-                            Switch(
-                                checked = detectScreenShotFaker,
-                                onCheckedChange = { detectScreenShotFaker = it }
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                // 1. 停止之前可能运行的检测
-                                stopAllDetections()
-                                // 2. 清空状态，添加启用的检测项（初始正常）
-                                detectionStatus.clear()
-                                if (detectKeyPressScreenshot) {
-                                    detectionStatus[Auxiliary.ID_SCREENSHOT] = false
-                                }
-                                if (detectScreenRecord) {
-                                    detectionStatus[Auxiliary.ID_RECORDING] = false
-                                }
-                                if (detectScreenShare) {
-                                    detectionStatus[Auxiliary.ID_MIRRORING] = false
-                                }
-                                if (basicEnvironmentCheck) {
-                                    detectionStatus[Auxiliary.ID_ENVIRONMENT] = false
-                                }
-                                if (monitorMediaProjectionState) {
-                                    detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false
-                                }
-                                if (monitorMediaLibrary) {
-                                    detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = false
-                                }
-                                if (monitorMediaRouter) {
-                                    detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false
-                                }
-                                if (monitorFileChanges) {
-                                    detectionStatus[Auxiliary.ID_FILE_CHANGES] = false
-                                }
-                                if (detectScreenShotFaker) {
-                                    detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false
-                                }
-
-                                // 3. 启动截屏检测（如果启用且可用）
-                                if (detectKeyPressScreenshot) {
-                                    onStartKeyPressDetection {
-                                        detectionStatus[Auxiliary.ID_SCREENSHOT] = true
-                                    }
-                                }
-                                if (detectScreenRecord) {
-                                    onStartScreenRecordingDetection(
-                                        { detectionStatus[Auxiliary.ID_RECORDING] = true },
-                                        { detectionStatus[Auxiliary.ID_RECORDING] = false }
-                                    )
-                                }
-                                if (detectScreenShare) {
-                                    onStartMirroringDetection(
-                                        { detectionStatus[Auxiliary.ID_MIRRORING] = true },
-                                        { detectionStatus[Auxiliary.ID_MIRRORING] = false }
-                                    )
-                                }
-                                if (monitorMediaProjectionState) {
-                                    onStartMediaProjectionDetection(
-                                        { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = true },
-                                        { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false }
-                                    )
-                                }
-                                if (monitorMediaRouter) {
-                                    onStartMediaRouterDetection(
-                                        { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = true },
-                                        { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false }
-                                    )
-                                }
-                                if (monitorMediaLibrary) {
-                                    onStartMediaLibraryDetection {
-                                        detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = true
-                                    }
-                                }
-                                if (monitorFileChanges) {
-                                    onStartFileChangesDetection {
-                                        detectionStatus[Auxiliary.ID_FILE_CHANGES] = true
-                                    }
-                                }
-                                if (basicEnvironmentCheck) {
-                                    onStartEnvironmentDetection(
-                                        { detectionStatus[Auxiliary.ID_ENVIRONMENT] = true },
-                                        { detectionStatus[Auxiliary.ID_ENVIRONMENT] = false }
-                                    )
-                                }
-                                // 4. 可在此启动其他检测
-
-                                // 5. 关闭对话框
-                                option = false
-                            }
-                        },
-                        enabled = isDetectionConfigValid
+    if (option) {
+        AlertDialog(
+            onDismissRequest = {
+                option = false
+                // 通知已由 LaunchedEffect 处理
+            },
+            title = { Text(stringResource(R.string.config_detect_options)) },
+            text = {
+                val density = LocalDensity.current
+                val windowHeightPx = LocalWindowInfo.current.containerSize.height
+                val windowHeightDp = with(density) { windowHeightPx.toDp() }
+                val maxHeight = windowHeightDp * 0.6f
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = maxHeight)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(stringResource(R.string.confirm))
+                        Text(stringResource(R.string.key_press_screenshot))
+                        Switch(
+                            checked = detectKeyPressScreenshot,
+                            onCheckedChange = { detectKeyPressScreenshot = it },
+                            enabled = Auxiliary.KeyPressDetectionAvailable
+                        )
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { option = false }) {
-                        Text(stringResource(R.string.cancel))
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.screen_recording))
+                        Switch(
+                            checked = detectScreenRecord,
+                            onCheckedChange = { detectScreenRecord = it },
+                            enabled = Auxiliary.ScreenRecordingDetectionAvailable
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.screen_mirroring))
+                        Switch(
+                            checked = detectScreenShare,
+                            onCheckedChange = { detectScreenShare = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.MediaProjection_state))
+                        Switch(
+                            checked = monitorMediaProjectionState,
+                            onCheckedChange = { monitorMediaProjectionState = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.media_library))
+                        Switch(
+                            checked = monitorMediaLibrary,
+                            onCheckedChange = { monitorMediaLibrary = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.basic_device_environment))
+                        Switch(
+                            checked = basicEnvironmentCheck,
+                            onCheckedChange = { basicEnvironmentCheck = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.file_changes))
+                        Switch(
+                            checked = monitorFileChanges,
+                            onCheckedChange = { monitorFileChanges = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.MediaRouter_state))
+                        Switch(
+                            checked = monitorMediaRouter,
+                            onCheckedChange = { monitorMediaRouter = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.suspicious_behavior))
+                        Switch(
+                            checked = detectSuspiciousBehavior,
+                            onCheckedChange = { detectSuspiciousBehavior = it }
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.ScreenshotFaker))
+                        Switch(
+                            checked = detectScreenShotFaker,
+                            onCheckedChange = { detectScreenShotFaker = it }
+                        )
                     }
                 }
-            )
-        }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            stopAllDetections()
+                            detectionStatus.clear()
+
+                            if (detectKeyPressScreenshot) {
+                                detectionStatus[Auxiliary.ID_SCREENSHOT] = false
+                                onStartKeyPressDetection {
+                                    detectionStatus[Auxiliary.ID_SCREENSHOT] = true
+                                }
+                            }
+                            if (detectScreenRecord) {
+                                detectionStatus[Auxiliary.ID_RECORDING] = false
+                                onStartScreenRecordingDetection(
+                                    { detectionStatus[Auxiliary.ID_RECORDING] = true },
+                                    { detectionStatus[Auxiliary.ID_RECORDING] = false }
+                                )
+                            }
+                            if (detectScreenShare) {
+                                detectionStatus[Auxiliary.ID_MIRRORING] = false
+                                onStartMirroringDetection(
+                                    { detectionStatus[Auxiliary.ID_MIRRORING] = true },
+                                    { detectionStatus[Auxiliary.ID_MIRRORING] = false }
+                                )
+                            }
+                            if (monitorMediaProjectionState) {
+                                detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false
+                                onStartMediaProjectionDetection(
+                                    { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = true },
+                                    { detectionStatus[Auxiliary.ID_MEDIA_PROJECTION] = false }
+                                )
+                            }
+                            if (monitorMediaLibrary) {
+                                detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = false
+                                onStartMediaLibraryDetection {
+                                    detectionStatus[Auxiliary.ID_MEDIA_LIBRARY] = true
+                                }
+                            }
+                            if (monitorFileChanges) {
+                                detectionStatus[Auxiliary.ID_FILE_CHANGES] = false
+                                onStartFileChangesDetection {
+                                    detectionStatus[Auxiliary.ID_FILE_CHANGES] = true
+                                }
+                            }
+                            if (monitorMediaRouter) {
+                                detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false
+                                onStartMediaRouterDetection(
+                                    { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = true },
+                                    { detectionStatus[Auxiliary.ID_MEDIA_ROUTER] = false }
+                                )
+                            }
+                            if (detectSuspiciousBehavior) {
+                                detectionStatus[Auxiliary.ID_BEHAVIOR] = false
+                                onStartBehaviorDetection(
+                                    { detectionStatus[Auxiliary.ID_BEHAVIOR] = true },
+                                    { detectionStatus[Auxiliary.ID_BEHAVIOR] = false }
+                                )
+                            }
+                            if (basicEnvironmentCheck) {
+                                detectionStatus[Auxiliary.ID_ENVIRONMENT] = false
+                                onStartEnvironmentDetection(
+                                    { detectionStatus[Auxiliary.ID_ENVIRONMENT] = true },
+                                    { detectionStatus[Auxiliary.ID_ENVIRONMENT] = false }
+                                )
+                            }
+                            if (detectScreenShotFaker) {
+                                detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false
+                                // TODO: 实现 ScreenshotFaker 检测
+                            }
+
+                            isLoading = false
+                            option = false
+                        }
+                    },
+                    enabled = isDetectionConfigValid
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    option = false
+                }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 }

@@ -11,6 +11,7 @@
     <string name="MediaProjection_state">MediaProjection state</string>
     <string name="MediaRouter_state">MediaRouter state</string>
     <string name="basic_device_environment">Basic device environment</string>
+    <string name="suspicious_behavior">Suspicious behavior</string>
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
     <string name="detect_again">Detect again</string>
     <string name="require_permission">Require permission to work</string>

@@ -2,6 +2,7 @@ package detector.screenshot
 
 import android.Manifest
 import android.content.Context
+import android.content.res.Configuration
 import android.database.ContentObserver
 import android.hardware.display.DisplayManager
 import android.net.Uri
@@ -24,8 +25,15 @@ import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.function.Consumer
+import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
@@ -38,9 +46,17 @@ class MainActivity : ComponentActivity() {
     private var pendingMediaLibraryCallback: (() -> Unit)? = null
     private var fileObserver: FileObserver? = null
     private var lastFileObserverTime = 0L
+    private var isBehaviorDetectionActive = false
+    private var lastBehaviorRisky = false
+    private var behaviorRiskyCallback: Pair<() -> Unit, () -> Unit>? = null
+    private var behaviorPollingJob: Job? = null
     private var environmentObserver: ContentObserver? = null
     private var accessibilityListener: AccessibilityManager.AccessibilityStateChangeListener? = null
     private var lastEnvironmentRisky = false
+    private val behaviorHandler = Handler(Looper.getMainLooper())
+
+    // 用于在对话框显示时暂停可疑行为检测
+    private var isBehaviorPaused = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -76,7 +92,11 @@ class MainActivity : ComponentActivity() {
                 onStartFileChangesDetection = ::startFileChangesDetection,
                 onStopFileChangesDetection = ::stopFileChangesDetection,
                 onStartEnvironmentDetection = ::startEnvironmentDetection,
-                onStopEnvironmentDetection = ::stopEnvironmentDetection
+                onStopEnvironmentDetection = ::stopEnvironmentDetection,
+                onStartBehaviorDetection = ::startBehaviorDetection,
+                onStopBehaviorDetection = ::stopBehaviorDetection,
+                onDialogShow = { pauseBehaviorDetection() },
+                onDialogDismiss = { resumeBehaviorDetection() }
             )
         }
     }
@@ -161,8 +181,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            override fun onDisplayChanged(displayId: Int) {
-                // 可选
+            override fun onDisplayChanged(displayId: Int) { /* 可选 */
             }
         }
     }
@@ -241,13 +260,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                // 可选
+            override fun onRouteChanged(
+                router: MediaRouter,
+                route: MediaRouter.RouteInfo
+            ) { /* 可选 */
             }
         }
         mediaRouterCallback = callback
         mediaRouter?.addCallback(selector, callback, MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY)
-
         if (mediaRouter?.routes?.any { !it.isDefault } == true) {
             onConnected()
         }
@@ -332,7 +352,6 @@ class MainActivity : ComponentActivity() {
         lastEnvironmentRisky = false
         val context = this
 
-        // 1. 监听全局设置变化（USB调试、开发者选项）
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
                 checkEnvironmentState(context, onRisky, onSafe)
@@ -345,7 +364,6 @@ class MainActivity : ComponentActivity() {
             observer
         )
 
-        // 2. 监听无障碍服务状态变化
         val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         val listener = AccessibilityManager.AccessibilityStateChangeListener {
             checkEnvironmentState(context, onRisky, onSafe)
@@ -353,7 +371,6 @@ class MainActivity : ComponentActivity() {
         accessibilityListener = listener
         am.addAccessibilityStateChangeListener(listener)
 
-        // 3. 立即检查一次当前状态
         checkEnvironmentState(context, onRisky, onSafe)
     }
 
@@ -378,6 +395,103 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- 可疑行为检测 ----------
+    fun pauseBehaviorDetection() {
+        isBehaviorPaused = true
+        behaviorRiskyCallback?.let { (_, onSafe) ->
+            if (lastBehaviorRisky) {
+                lastBehaviorRisky = false
+                onSafe()
+            }
+        }
+    }
+
+    fun resumeBehaviorDetection() {
+        behaviorHandler.removeCallbacksAndMessages(null)
+        behaviorHandler.postDelayed({
+            isBehaviorPaused = false
+        }, 500) // 保留延迟，防止对话框关闭瞬间触发
+    }
+
+    private fun startBehaviorDetection(onRisky: () -> Unit, onSafe: () -> Unit) {
+        stopBehaviorDetection()
+        isBehaviorDetectionActive = true
+        behaviorRiskyCallback = onRisky to onSafe
+
+        startBehaviorPolling(onRisky, onSafe)
+        checkBehaviorState(onRisky, onSafe)
+    }
+
+    private fun stopBehaviorDetection() {
+        isBehaviorDetectionActive = false
+        behaviorRiskyCallback = null
+        lastBehaviorRisky = false
+        stopBehaviorPolling()
+    }
+
+    private fun startBehaviorPolling(onRisky: () -> Unit, onSafe: () -> Unit) {
+        stopBehaviorPolling()
+        behaviorPollingJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                checkBehaviorState(onRisky, onSafe)
+                delay(Auxiliary.BEHAVIOR_POLL_INTERVAL.milliseconds)
+            }
+        }
+    }
+
+    private fun stopBehaviorPolling() {
+        behaviorPollingJob?.cancel()
+        behaviorPollingJob = null
+    }
+
+    private fun isBehaviorRisky(): Boolean {
+        if (isBehaviorPaused) return false
+        if (isInMultiWindowMode) return true
+        if (isInPictureInPictureMode) return true
+        return false
+    }
+
+    private fun checkBehaviorState(onRisky: () -> Unit, onSafe: () -> Unit) {
+        if (!isBehaviorDetectionActive) return
+        val risky = isBehaviorRisky()
+        if (risky != lastBehaviorRisky) {
+            lastBehaviorRisky = risky
+            if (risky) onRisky()
+            else onSafe()
+        }
+    }
+
+    // ---------- 生命周期回调 ----------
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (isBehaviorDetectionActive && !isBehaviorPaused) {
+            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                checkBehaviorState(onRisky, onSafe)
+            }
+        }
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        if (isBehaviorDetectionActive && !isBehaviorPaused) {
+            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                checkBehaviorState(onRisky, onSafe)
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isBehaviorDetectionActive && !isBehaviorPaused) {
+            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                checkBehaviorState(onRisky, onSafe)
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopKeyPressDetection()
@@ -387,6 +501,7 @@ class MainActivity : ComponentActivity() {
         stopMediaRouterDetection()
         stopMediaLibraryDetection()
         stopFileChangesDetection()
+        stopBehaviorDetection()
         stopEnvironmentDetection()
     }
 }

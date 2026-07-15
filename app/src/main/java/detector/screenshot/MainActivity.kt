@@ -25,8 +25,16 @@ import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import detector.screenshot.pages.HomeCompose
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.function.Consumer
+import kotlin.time.Duration.Companion.milliseconds
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
@@ -47,6 +55,8 @@ class MainActivity : ComponentActivity() {
     private var lastEnvironmentRisky = false
     private val behaviorHandler = Handler(Looper.getMainLooper())
     private var isBehaviorPaused = false
+    private var screenshotFakerCheckJob: Job? = null
+    private var lastScreenshotFakerRisky = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -86,7 +96,9 @@ class MainActivity : ComponentActivity() {
                 onStartBehaviorDetection = ::startBehaviorDetection,
                 onStopBehaviorDetection = ::stopBehaviorDetection,
                 onDialogShow = { pauseBehaviorDetection() },
-                onDialogDismiss = { resumeBehaviorDetection() }
+                onDialogDismiss = { resumeBehaviorDetection() },
+                onStartScreenshotFakerDetection = ::startScreenshotFakerDetection,
+                onStopScreenshotFakerDetection = ::stopScreenshotFakerDetection
             )
         }
     }
@@ -454,6 +466,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ---------- ScreenshotFaker检测 ----------
+    private fun startScreenshotFakerDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+        stopScreenshotFakerDetection()
+        lastScreenshotFakerRisky = false
+        screenshotFakerCheckJob = CoroutineScope(Dispatchers.IO).launch {
+            while (isActive) {
+                val present = Auxiliary.isScreenshotFakerPresent(this@MainActivity)
+                withContext(Dispatchers.Main) {
+                    if (present && !lastScreenshotFakerRisky) {
+                        lastScreenshotFakerRisky = true
+                        onDetected()
+                    } else if (!present && lastScreenshotFakerRisky) {
+                        lastScreenshotFakerRisky = false
+                        onStopped()
+                    }
+                }
+                delay(5000.milliseconds)
+            }
+        }
+    }
+
+    private fun stopScreenshotFakerDetection() {
+        screenshotFakerCheckJob?.cancel()
+        screenshotFakerCheckJob = null
+        lastScreenshotFakerRisky = false
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopKeyPressDetection()
@@ -465,5 +504,6 @@ class MainActivity : ComponentActivity() {
         stopFileChangesDetection()
         stopBehaviorDetection()
         stopEnvironmentDetection()
+        stopScreenshotFakerDetection()
     }
 }

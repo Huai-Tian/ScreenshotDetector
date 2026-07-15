@@ -88,7 +88,9 @@ fun HomeCompose(
     onStartBehaviorDetection: (onRisky: () -> Unit, onSafe: () -> Unit) -> Unit = { _, _ -> },
     onStopBehaviorDetection: () -> Unit = {},
     onDialogShow: () -> Unit = {},
-    onDialogDismiss: () -> Unit = {}
+    onDialogDismiss: () -> Unit = {},
+    onStartScreenshotFakerDetection: (onDetected: () -> Unit, onStopped: () -> Unit) -> Unit = { _, _ -> },
+    onStopScreenshotFakerDetection: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -130,6 +132,7 @@ fun HomeCompose(
         onStopFileChangesDetection()
         onStopBehaviorDetection()
         onStopEnvironmentDetection()
+        onStopScreenshotFakerDetection()
     }
 
     DisposableEffect(Unit) {
@@ -399,7 +402,10 @@ fun HomeCompose(
                             }
                             if (detectScreenShotFaker) {
                                 detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false
-                                // TODO: 实现 ScreenshotFaker 检测
+                                onStartScreenshotFakerDetection(
+                                    { detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = true },
+                                    { detectionStatus[Auxiliary.ID_SCREENSHOT_FAKER] = false }
+                                )
                             }
 
                             isLoading = false

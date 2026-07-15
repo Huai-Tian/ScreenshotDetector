@@ -6,12 +6,15 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
+import java.io.File
+import java.net.SocketTimeoutException
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
@@ -30,7 +33,6 @@ object Auxiliary {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     val ScreenRecordingDetectionAvailable =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM
-    const val BEHAVIOR_POLL_INTERVAL = 1500L
 
     @Suppress("unused")
     fun log(content: String) {
@@ -98,6 +100,41 @@ object Auxiliary {
                 context,
                 Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun isScreenshotFakerPresent(context: Context): Boolean {
+        try {
+            context.packageManager.getPackageInfo("fake.screenshot", 0)
+            return true
+        } catch (_: PackageManager.NameNotFoundException) {
+        }
+        val dir = File(Environment.getExternalStorageDirectory(), "Pictures/ScreenshotFaker")
+        if (dir.exists() && dir.isDirectory) return true
+        return isScreenshotFakerPortOpen()
+    }
+
+    private fun isScreenshotFakerPortOpen(): Boolean {
+        return try {
+            val socket = java.net.Socket()
+            val address = java.net.InetSocketAddress("127.0.0.1", 1234)
+            socket.connect(address, 500)
+            socket.soTimeout = 500
+
+            val output = socket.getOutputStream()
+            output.write("Detector".toByteArray())
+            output.flush()
+
+            val input = socket.getInputStream()
+            val buffer = ByteArray(1024)
+            val read = input.read(buffer)
+
+            socket.close()
+            read == -1
+        } catch (_: SocketTimeoutException) {
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 }

@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -111,7 +110,6 @@ fun HomeCompose(
     var monitorFileChanges by remember { mutableStateOf(false) }
     var detectSuspiciousBehavior by remember { mutableStateOf(false) }
     var detectScreenShotFaker by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
 
     val detectionStatus = remember { mutableStateMapOf<Int, Boolean>() }
     val isDetectionConfigValid by remember {
@@ -159,64 +157,68 @@ fun HomeCompose(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            when {
-                isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
 
-                else -> {
-                    Card(
-                        modifier = Modifier.fillMaxSize(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(
-                                12.dp,
-                                Alignment.CenterVertically
-                            ),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            detectionStatus.entries.forEach { (id, isAbnormal) ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "${getItemName(context, id)}: ",
-                                        fontSize = 15.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = if (isAbnormal) {
-                                            stringResource(R.string.status_abnormal)
-                                        } else {
-                                            stringResource(R.string.status_normal)
-                                        },
-                                        fontSize = 18.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = if (isAbnormal) Color.Red else Color.Green
-                                    )
-                                }
+            Card(
+                modifier = Modifier.fillMaxSize(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(
+                        12.dp,
+                        Alignment.CenterVertically
+                    ),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (detectionStatus.isNotEmpty()) {
+                        detectionStatus.entries.forEach { (id, isAbnormal) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "${getItemName(context, id)}: ",
+                                    fontSize = 15.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (isAbnormal) {
+                                        stringResource(R.string.status_abnormal)
+                                    } else {
+                                        stringResource(R.string.status_normal)
+                                    },
+                                    fontSize = 18.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = if (isAbnormal) Color.Red else Color.Green
+                                )
                             }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no_detection_item_yet),
+                                fontSize = 15.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                     }
                 }
             }
+
         }
     }
 
     if (option) {
         AlertDialog(
-            onDismissRequest = {
-                option = false
-                // 通知已由 LaunchedEffect 处理
-            },
+            onDismissRequest = {},
             title = { Text(stringResource(R.string.config_detect_options)) },
             text = {
                 val density = LocalDensity.current
@@ -408,7 +410,6 @@ fun HomeCompose(
                                 )
                             }
 
-                            isLoading = false
                             option = false
                         }
                     },

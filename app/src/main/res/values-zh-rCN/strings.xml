@@ -31,4 +31,6 @@
     <string name="close">关闭</string>
     <string name="agree_and_continue">同意并继续</string>
     <string name="disagree_and_exit">不同意并退出</string>
+    <string name="license">许可证</string>
+    <string name="back">返回</string>
 </resources>

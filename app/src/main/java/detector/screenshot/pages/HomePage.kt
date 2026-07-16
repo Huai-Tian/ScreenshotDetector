@@ -2,6 +2,7 @@ package detector.screenshot.pages
 
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -563,6 +564,7 @@ fun HomeCompose(
         }
     }
     if (openSource) {
+        BackHandler { openSource = false }
         OpenSourceLicensesScreen(onBack = { openSource = false })
     }
 }
@@ -587,10 +589,10 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("开放源代码许可") },
+                title = { Text(stringResource(R.string.open_source)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 }
             )
@@ -614,7 +616,7 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = "许可证: ${lib.license}",
+                        text = "${stringResource(R.string.license)}: ${lib.license}",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(

@@ -32,4 +32,7 @@
     <string name="close">Close</string>
     <string name="agree_and_continue">Agree</string>
     <string name="disagree_and_exit">Disagree</string>
+    <!--License-->
+    <string name="license">License</string>
+    <string name="back">Back</string>
 </resources>

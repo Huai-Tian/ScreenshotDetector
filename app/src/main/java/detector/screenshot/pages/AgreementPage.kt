@@ -14,30 +14,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import detector.screenshot.R
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
-import kotlin.random.Random
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,96 +41,15 @@ fun AgreementCompose(
     onAgree: () -> Unit,
     onDisagree: () -> Unit
 ) {
-    var equationText by remember { mutableStateOf("") }
-    var correctRoots by remember { mutableStateOf(listOf<Double>()) }
-    var inputText by remember { mutableStateOf("") }
-
-    fun generateEquation() {
-        var a: Double
-        var b: Double
-        var c: Double
-        var delta: Double
-        var attempts = 0
-        val maxAttempts = 200
-
-        do {
-            a = (Random.nextInt(-499, 500) / 10.0).let { if (it == 0.0) 1.0 else it }
-            b = (Random.nextInt(-499, 500) / 10.0)
-            c = (Random.nextInt(-499, 500) / 10.0)
-            delta = b * b - 4 * a * c
-            attempts++
-            if (attempts >= maxAttempts) {
-                val target = (b * b) / (4 * a)
-                c = target + if (Random.nextBoolean()) 0.1 else -0.1
-                c = (c * 10).toInt() / 10.0
-                delta = b * b - 4 * a * c
-                if (delta < 0) {
-                    c = 0.0
-                    delta = b * b - 4 * a * c
-                }
-                break
-            }
-        } while (delta < 0)
-
-        val sqrtDelta = sqrt(delta)
-        val root1 = (-b + sqrtDelta) / (2 * a)
-        val root2 = (-b - sqrtDelta) / (2 * a)
-
-        fun roundToOneDecimal(value: Double): Double = ((value + 1e-9) * 10).roundToInt() / 10.0
-
-
-        val r1 = roundToOneDecimal(root1)
-        val r2 = roundToOneDecimal(root2)
-        correctRoots = listOf(r1, r2)
-
-        // 格式化方程字符串（仅显示）
-        fun formatNumber(v: Double): String {
-            val intPart = v.toInt()
-            return if (v == intPart.toDouble()) intPart.toString() else "%.1f".format(v)
-        }
-
-        fun formatCuff(value: Double, isFirst: Boolean): String {
-            if (value == 0.0) return ""
-            val sign = when {
-                value < 0 -> if (isFirst) "-" else "- "
-                else -> if (isFirst) "" else "+ "
-            }
-            val absVal = kotlin.math.abs(value)
-            val num = formatNumber(absVal)
-            return when {
-                isFirst && absVal == 1.0 -> if (value < 0) "-" else ""
-                !isFirst && absVal == 1.0 -> if (value < 0) "- " else "+ "
-                else -> "$sign$num"
-            }.trim()
-        }
-
-        val aStr = formatCuff(a, true)
-        val bStr = formatCuff(b, false)
-        val cStr = formatCuff(c, false)
-
-        val parts = mutableListOf<String>()
-        if (aStr.isNotEmpty()) parts.add("${aStr}x²") else parts.add("x²")
-        if (bStr.isNotEmpty()) parts.add("${bStr}x")
-        if (cStr.isNotEmpty()) parts.add(cStr)
-        if (parts.isEmpty()) parts.add("0")
-
-        equationText = parts.joinToString(" ") + " = 0"
-    }
+    var countdown by rememberSaveable { mutableIntStateOf(30) }
+    var isCounting by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        generateEquation()
-    }
-
-    val inputCorrect by remember {
-        derivedStateOf {
-            val userInput = inputText.toDoubleOrNull()
-            if (userInput == null) false
-            else {
-                correctRoots.any { root ->
-                    kotlin.math.abs(root - userInput) < 1e-6
-                }
-            }
+        while (countdown > 0 && isCounting) {
+            delay(1000L.milliseconds)
+            countdown--
         }
+        isCounting = false
     }
 
     Scaffold(
@@ -166,49 +81,33 @@ fun AgreementCompose(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 UserAgreement()
-                Text(
-                    text = stringResource(R.string.solve_equation),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    fontSize = 14.sp,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(
-                    text = "求解方程：$equationText",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.x_value)) },
-                    singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
                         onClick = onDisagree,
-                        modifier = Modifier.weight(0.6f)
+                        modifier = Modifier.weight(0.55f)
                     ) {
-                        Text(stringResource(R.string.disagree_and_exit))
+                        Text(
+                            stringResource(R.string.disagree_and_exit),
+                            fontSize = 14.sp
+                        )
                     }
                     Button(
                         onClick = onAgree,
-                        modifier = Modifier.weight(0.4f),
-                        enabled = inputCorrect
+                        modifier = Modifier.weight(0.45f),
+                        enabled = countdown == 0
                     ) {
-                        Text(stringResource(R.string.agree_and_continue))
+                        if (countdown > 0)
+                            Text(
+                                stringResource(R.string.agree_and_continue) + "($countdown)",
+                                fontSize = 13.sp
+                            )
+                        else Text(stringResource(R.string.agree_and_continue))
                     }
                 }
             }

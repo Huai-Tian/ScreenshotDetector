@@ -8,28 +8,28 @@
 
 **此应用程序代表着[ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker)的对立面，用于检测自身是否被截屏、录屏或共享屏幕，以及是否处于风险环境。**
 
-**Detection Method (Under Development)**
+**Detection Method**
 * **Detect key-press screenshots via ScreenCaptureCallback.**
-* **Monitor the media library via ContentObserver.**
-* **Monitor files via FileObserver.**
 * **Detect screen recording via ScreenRecordingCallback.**
-* **Monitor the status of the MediaProjection service.**
-* **Monitor MediaRouter for auxiliary detection.**
 * **Detect screen mirroring via DisplayManager.**
-* **Basic device environment security detection.**
-* **Suspicious behavior detection.**
+* **Monitor the status of the MediaProjection service.**
+* **Monitor the media library via ContentObserver.**
+* **Basic device environment security detection: Developer options, USB debugging, and Accessibility mode.**
+* **Monitor files via FileObserver.**
+* **Monitor MediaRouter for auxiliary detection.**
+* **Suspicious behavior detection for screen switching, picture-in-picture, and small-window mode.**
 * **Detect ScreenshotFaker characteristics.**
 
-**检测方式（开发中）**
+**检测方式**
 * **通过 ScreenCaptureCallback 检测按键截屏**
-* **通过 ContentObserver 监听媒体库**
-* **通过 FileObserver 监听文件**
 * **通过 ScreenRecordingCallback 检测是否存在录屏**
-* **监听 MediaProjection 服务状态**
-* **监听 MediaRouter 用于辅助**
 * **通过 DisplayManager 检测是否存在投屏**
-* **基础的设备环境安全检测**
-* **可疑行为检测**
+* **监听 MediaProjection 服务状态**
+* **通过 ContentObserver 监听媒体库**
+* **基础的设备环境安全检测：开发者选项，USB调试和无障碍模式**
+* **通过 FileObserver 监听文件**
+* **监听 MediaRouter 用于辅助**
+* **可疑行为检测：切屏，画中画或小窗模式**
 * **检测是否存在 ScreenshotFaker 特征**
 
 **Important Notice**\

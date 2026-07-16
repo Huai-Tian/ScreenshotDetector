@@ -458,6 +458,7 @@ class MainActivity : ComponentActivity() {
         isBehaviorDetectionActive = false
         behaviorRiskyCallback = null
         lastBehaviorRisky = false
+        isResuming = false
         behaviorPollingJob?.cancel()
         behaviorPollingJob = null
     }
@@ -545,25 +546,10 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         isInBackground = true
+        if (isResuming) isResuming = false
         if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, _) ->
-                if (!lastBehaviorRisky) {
-                    lastBehaviorRisky = true
-                    onRisky()
-                }
-            }
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        isInBackground = true
-        if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, _) ->
-                if (!lastBehaviorRisky) {
-                    lastBehaviorRisky = true
-                    onRisky()
-                }
+            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                checkBehaviorState(onRisky, onSafe)
             }
         }
     }

@@ -28,7 +28,7 @@ object Auxiliary {
     const val ID_FILE_CHANGES = 7
     const val ID_SCREENSHOT_FAKER = 8
     const val ID_BEHAVIOR = 9
-    const val BEHAVIOR_POLL_INTERVAL = 2000L
+    const val BEHAVIOR_POLL_INTERVAL = 1000L
     val KeyPressDetectionAvailable =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     val ScreenRecordingDetectionAvailable =

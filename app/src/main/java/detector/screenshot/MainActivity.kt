@@ -61,6 +61,8 @@ class MainActivity : ComponentActivity() {
     private var lastEnvironmentRisky = false
     private val behaviorHandler = Handler(Looper.getMainLooper())
     private var isBehaviorPaused = false
+    private var isInBackground = false
+    private var isResuming = false
     private var screenshotFakerCheckJob: Job? = null
     private var lastScreenshotFakerRisky = false
     private var behaviorPollingJob: Job? = null
@@ -462,13 +464,14 @@ class MainActivity : ComponentActivity() {
 
     private fun isBehaviorRisky(): Boolean {
         if (isBehaviorPaused) return false
+        if (isInBackground) return true
         if (isInMultiWindowMode) return true
         if (isInPictureInPictureMode) return true
         return false
     }
 
     private fun checkBehaviorState(onRisky: () -> Unit, onSafe: () -> Unit) {
-        if (!isBehaviorDetectionActive) return
+        if (!isBehaviorDetectionActive || isResuming) return
         val risky = isBehaviorRisky()
         if (risky != lastBehaviorRisky) {
             lastBehaviorRisky = risky
@@ -537,5 +540,46 @@ class MainActivity : ComponentActivity() {
         stopBehaviorDetection()
         stopEnvironmentDetection()
         stopScreenshotFakerDetection()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isInBackground = true
+        if (isBehaviorDetectionActive && !isBehaviorPaused) {
+            behaviorRiskyCallback?.let { (onRisky, _) ->
+                if (!lastBehaviorRisky) {
+                    lastBehaviorRisky = true
+                    onRisky()
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        isInBackground = true
+        if (isBehaviorDetectionActive && !isBehaviorPaused) {
+            behaviorRiskyCallback?.let { (onRisky, _) ->
+                if (!lastBehaviorRisky) {
+                    lastBehaviorRisky = true
+                    onRisky()
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isInBackground = false
+        isResuming = true
+        behaviorHandler.removeCallbacksAndMessages(null)
+        behaviorHandler.postDelayed({
+            isResuming = false
+            if (isBehaviorDetectionActive && !isBehaviorPaused) {
+                behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                    checkBehaviorState(onRisky, onSafe)
+                }
+            }
+        }, 1000)
     }
 }

@@ -161,7 +161,8 @@ class MainActivity : ComponentActivity() {
             }
             screenRecordingCallback = callback
             val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            windowManager.addScreenRecordingCallback(mainExecutor, callback)
+            val initState = windowManager.addScreenRecordingCallback(mainExecutor, callback)
+            callback.accept(initState)
         }
     }
 

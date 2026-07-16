@@ -33,10 +33,10 @@
 * **检测是否存在 ScreenshotFaker 特征**
 
 **Important Notice**\
-This software is currently in the early stages of development. Many features are still under construction, and existing ones may have bugs or limitations. I sincerely apologize for any errors or issues you may encounter.You are also welcome to submit Issues and Pull Requests!
+This software is currently in the early stages of development. Many features may have bugs or limitations. I sincerely apologize for any errors or issues you may encounter.You are also welcome to submit Issues and Pull Requests!
 
 **重要提示**\
-本软件尚在开发早期阶段，大量的功能还在实现中，已实现的功能可能存在各种问题和不足，如果你在使用过程中遇到任何错误，我深感抱歉。同时也欢迎您提交 Issue 和 Pull Request！
+本软件尚在开发早期阶段，已实现的功能可能存在各种问题和不足，如果你在使用过程中遇到任何错误，我深感抱歉。同时也欢迎您提交 Issue 和 Pull Request！
 
 **Contact**\
 Welcome to join us for communication and feedback: [QQ](https://qm.qq.com/q/j2NM49cd8c)\

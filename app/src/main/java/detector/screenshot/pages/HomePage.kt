@@ -480,7 +480,12 @@ fun HomeCompose(
             onDismissRequest = {},
             modifier = Modifier.fillMaxHeight(),
             title = { Text(stringResource(R.string.user_agreement) + "\n" + stringResource(R.string.agreed)) },
-            text = { UserAgreement() },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) { UserAgreement() }
+            },
             confirmButton = {
                 Button(
                     onClick = { agreement = false },

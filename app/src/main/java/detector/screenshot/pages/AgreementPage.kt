@@ -219,9 +219,7 @@ fun AgreementCompose(
 @Composable
 fun UserAgreement() {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
+        modifier = Modifier.fillMaxWidth()
     ) {
         Text(
             text = "截图检测（以下简称“本软件”）用户协议由本软件开发者（以下简称“我们”）与用户签订。用户应认真阅读、充分理解本协议中各条款，请用户审慎阅读并选择接受或不接受本协议（未成年人应在法定监护人陪同下阅读）。",

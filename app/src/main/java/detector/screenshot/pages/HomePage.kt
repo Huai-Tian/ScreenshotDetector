@@ -13,7 +13,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -51,6 +52,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -127,6 +130,7 @@ fun HomeCompose(
     var expanded by remember { mutableStateOf(false) }
     var agreement by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf(false) }
+    var openSource by remember { mutableStateOf(false) }
     val isDetectionConfigValid by remember {
         derivedStateOf {
             detectKeyPressScreenshot || detectScreenRecord || detectScreenShare ||
@@ -483,7 +487,6 @@ fun HomeCompose(
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally
                 ) { UserAgreement() }
             },
             confirmButton = {
@@ -531,7 +534,10 @@ fun HomeCompose(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { info = false },
+                            onClick = {
+                                openSource = true
+                                info = false
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
@@ -556,4 +562,74 @@ fun HomeCompose(
             }
         }
     }
+    if (openSource) {
+        OpenSourceLicensesScreen(onBack = { openSource = false })
+    }
 }
+// 开源许可证页面
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OpenSourceLicensesScreen(onBack: () -> Unit) {
+    val libraries = listOf(
+        LibraryInfo("AndroidX Compose BOM", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX Activity Compose", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX Compose Material3", "Apache-2.0", "Copyright (c) 2019 The Android Open Source Project"),
+        LibraryInfo("AndroidX Compose UI", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX Compose UI Graphics", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX Compose Material Icons Core", "Apache-2.0", "Copyright (c) 2019 The Android Open Source Project"),
+        LibraryInfo("AndroidX Core KTX", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX Lifecycle Runtime KTX", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("AndroidX MediaRouter", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo("Kotlin Coroutines", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o."),
+        LibraryInfo("Kotlin Stdlib", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o.")
+    )
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("开放源代码许可") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(libraries) { lib ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = lib.name,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        text = "许可证: ${lib.license}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = lib.copyright,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+data class LibraryInfo(
+    val name: String,
+    val license: String,
+    val copyright: String
+)

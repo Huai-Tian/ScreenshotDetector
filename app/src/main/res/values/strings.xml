@@ -1,4 +1,5 @@
 <resources>
+    <!--HomePage-->
     <string name="app_name">ScreenshotDetector</string>
     <string name="confirm">Confirm</string>
     <string name="cancel">Cancel</string>
@@ -15,7 +16,20 @@
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
     <string name="detect_again">Detect again</string>
     <string name="require_permission">Require permission to work</string>
-    <string name="no_detection_item_yet">No detection item yet</string>
+    <string name="no_detection_items_yet">No detection items yet</string>
+    <string name="more">More</string>
+    <string name="open_source">Open Source</string>
+    <string name="info">Info</string>
+    <string name="description_first">This software is a security tool dedicated to screen behavior detection. It enables real-time awareness of potential screen capture activities—including screenshots, screen recording, and screen casting—while also monitoring risk conditions within the device environment.</string>
+    <string name="description_second">Completely free! Resale is strictly prohibited! Not for illegal or commercial use.</string>
     <string name="status_abnormal">Abnormal</string>
     <string name="status_normal">Normal</string>
+    <!--AgreementPage-->
+    <string name="user_agreement">User Agreement</string>
+    <string name="solve_equation">Please solve the following quadratic equation and enter any one root (rounded to one decimal place):</string>
+    <string name="x_value">x Value</string>
+    <string name="agreed">[Agreed]</string>
+    <string name="close">Close</string>
+    <string name="agree_and_continue">Agree</string>
+    <string name="disagree_and_exit">Disagree</string>
 </resources>

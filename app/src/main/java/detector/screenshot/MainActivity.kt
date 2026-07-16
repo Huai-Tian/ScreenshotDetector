@@ -2,6 +2,7 @@ package detector.screenshot
 
 import android.Manifest
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.database.ContentObserver
 import android.hardware.display.DisplayManager
@@ -21,9 +22,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
+import detector.screenshot.pages.AgreementCompose
 import detector.screenshot.pages.HomeCompose
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +40,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.function.Consumer
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
@@ -57,7 +63,9 @@ class MainActivity : ComponentActivity() {
     private var isBehaviorPaused = false
     private var screenshotFakerCheckJob: Job? = null
     private var lastScreenshotFakerRisky = false
-
+    private var behaviorPollingJob: Job? = null
+    private lateinit var sharedPreferences: SharedPreferences
+    private var showHome by mutableStateOf(false)
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -75,31 +83,45 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        sharedPreferences = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        showHome = sharedPreferences.getBoolean("has_agreed", false)
         setContent {
-            HomeCompose(
-                onStartKeyPressDetection = ::startKeyPressDetection,
-                onStopKeyPressDetection = ::stopKeyPressDetection,
-                onStartScreenRecordingDetection = ::startScreenRecordingDetection,
-                onStopScreenRecordingDetection = ::stopScreenRecordingDetection,
-                onStartMirroringDetection = ::startMirroringDetection,
-                onStopMirroringDetection = ::stopMirroringDetection,
-                onStartMediaProjectionDetection = ::startMediaProjectionDetection,
-                onStopMediaProjectionDetection = ::stopMediaProjectionDetection,
-                onStartMediaRouterDetection = ::startMediaRouterDetection,
-                onStopMediaRouterDetection = ::stopMediaRouterDetection,
-                onStartMediaLibraryDetection = ::startMediaLibraryDetection,
-                onStopMediaLibraryDetection = ::stopMediaLibraryDetection,
-                onStartFileChangesDetection = ::startFileChangesDetection,
-                onStopFileChangesDetection = ::stopFileChangesDetection,
-                onStartEnvironmentDetection = ::startEnvironmentDetection,
-                onStopEnvironmentDetection = ::stopEnvironmentDetection,
-                onStartBehaviorDetection = ::startBehaviorDetection,
-                onStopBehaviorDetection = ::stopBehaviorDetection,
-                onDialogShow = { pauseBehaviorDetection() },
-                onDialogDismiss = { resumeBehaviorDetection() },
-                onStartScreenshotFakerDetection = ::startScreenshotFakerDetection,
-                onStopScreenshotFakerDetection = ::stopScreenshotFakerDetection
-            )
+            if (showHome) {
+                HomeCompose(
+                    onStartKeyPressDetection = ::startKeyPressDetection,
+                    onStopKeyPressDetection = ::stopKeyPressDetection,
+                    onStartScreenRecordingDetection = ::startScreenRecordingDetection,
+                    onStopScreenRecordingDetection = ::stopScreenRecordingDetection,
+                    onStartMirroringDetection = ::startMirroringDetection,
+                    onStopMirroringDetection = ::stopMirroringDetection,
+                    onStartMediaProjectionDetection = ::startMediaProjectionDetection,
+                    onStopMediaProjectionDetection = ::stopMediaProjectionDetection,
+                    onStartMediaRouterDetection = ::startMediaRouterDetection,
+                    onStopMediaRouterDetection = ::stopMediaRouterDetection,
+                    onStartMediaLibraryDetection = ::startMediaLibraryDetection,
+                    onStopMediaLibraryDetection = ::stopMediaLibraryDetection,
+                    onStartFileChangesDetection = ::startFileChangesDetection,
+                    onStopFileChangesDetection = ::stopFileChangesDetection,
+                    onStartEnvironmentDetection = ::startEnvironmentDetection,
+                    onStopEnvironmentDetection = ::stopEnvironmentDetection,
+                    onStartBehaviorDetection = ::startBehaviorDetection,
+                    onStopBehaviorDetection = ::stopBehaviorDetection,
+                    onDialogShow = { pauseBehaviorDetection() },
+                    onDialogDismiss = { resumeBehaviorDetection() },
+                    onStartScreenshotFakerDetection = ::startScreenshotFakerDetection,
+                    onStopScreenshotFakerDetection = ::stopScreenshotFakerDetection,
+                )
+            } else {
+                AgreementCompose(
+                    onAgree = {
+                        sharedPreferences.edit { putBoolean("has_agreed", true) }
+                        showHome = true
+                    },
+                    onDisagree = {
+                        finishAffinity()
+                    }
+                )
+            }
         }
     }
 
@@ -420,12 +442,22 @@ class MainActivity : ComponentActivity() {
         isBehaviorDetectionActive = true
         behaviorRiskyCallback = onRisky to onSafe
         checkBehaviorState(onRisky, onSafe)
+        behaviorPollingJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                delay(Auxiliary.BEHAVIOR_POLL_INTERVAL.milliseconds)
+                if (isBehaviorDetectionActive && !isBehaviorPaused) {
+                    checkBehaviorState(onRisky, onSafe)
+                }
+            }
+        }
     }
 
     private fun stopBehaviorDetection() {
         isBehaviorDetectionActive = false
         behaviorRiskyCallback = null
         lastBehaviorRisky = false
+        behaviorPollingJob?.cancel()
+        behaviorPollingJob = null
     }
 
     private fun isBehaviorRisky(): Boolean {

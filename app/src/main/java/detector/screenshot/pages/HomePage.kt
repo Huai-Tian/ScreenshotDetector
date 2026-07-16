@@ -1,14 +1,18 @@
 package detector.screenshot.pages
 
 import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -46,8 +50,16 @@ import detector.screenshot.R
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Surface
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.window.Dialog
+import androidx.core.net.toUri
 
 private fun getItemName(context: Context, id: Int): String {
     return when (id) {
@@ -112,6 +124,9 @@ fun HomeCompose(
     var detectScreenShotFaker by remember { mutableStateOf(false) }
 
     val detectionStatus = remember { mutableStateMapOf<Int, Boolean>() }
+    var expanded by remember { mutableStateOf(false) }
+    var agreement by remember { mutableStateOf(false) }
+    var info by remember { mutableStateOf(false) }
     val isDetectionConfigValid by remember {
         derivedStateOf {
             detectKeyPressScreenshot || detectScreenRecord || detectScreenShare ||
@@ -147,6 +162,37 @@ fun HomeCompose(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.detect_again)
                         )
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { expanded = !expanded }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = stringResource(R.string.more)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                            modifier = Modifier
+                                .width(180.dp)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.user_agreement)) },
+                                onClick = {
+                                    expanded = false
+                                    agreement = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.info)) },
+                                onClick = {
+                                    expanded = false
+                                    info = true
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -204,7 +250,7 @@ fun HomeCompose(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = stringResource(R.string.no_detection_item_yet),
+                                text = stringResource(R.string.no_detection_items_yet),
                                 fontSize = 15.sp,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -419,12 +465,90 @@ fun HomeCompose(
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    option = false
-                }) {
+                TextButton(
+                    onClick = {
+                        option = false
+                    }
+                ) {
                     Text(stringResource(R.string.cancel))
                 }
             }
         )
+    }
+    if (agreement) {
+        AlertDialog(
+            onDismissRequest = {},
+            modifier = Modifier.fillMaxHeight(),
+            title = { Text(stringResource(R.string.user_agreement) + "\n" + stringResource(R.string.agreed)) },
+            text = { UserAgreement() },
+            confirmButton = {
+                Button(
+                    onClick = { agreement = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
+    }
+    if (info) {
+        Dialog(onDismissRequest = { info = false }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.description_first),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 5.dp)
+                    )
+                    Text(
+                        text = stringResource(R.string.description_second),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { info = false },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.open_source), fontSize = 11.sp)
+                        }
+                        Button(
+                            onClick = {
+                                val url = "https://github.com/Huai-Tian/ScreenshotDetector"
+                                val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+                                context.startActivity(intent)
+                                info = false
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            Text("GitHub", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

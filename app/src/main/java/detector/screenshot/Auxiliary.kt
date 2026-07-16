@@ -14,7 +14,6 @@ import android.view.Display
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
 import java.io.File
-import java.net.SocketTimeoutException
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
@@ -29,6 +28,7 @@ object Auxiliary {
     const val ID_FILE_CHANGES = 7
     const val ID_SCREENSHOT_FAKER = 8
     const val ID_BEHAVIOR = 9
+    const val BEHAVIOR_POLL_INTERVAL = 2000L
     val KeyPressDetectionAvailable =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
     val ScreenRecordingDetectionAvailable =
@@ -40,6 +40,7 @@ object Auxiliary {
     }
 
     fun isNonDefaultDisplay(display: Display) = display.displayId != Display.DEFAULT_DISPLAY
+
     fun hasNonDefaultDisplay(displays: Array<Display>) = displays.any { isNonDefaultDisplay(it) }
 
     fun checkForScreenshot(contentResolver: ContentResolver, onDetected: () -> Unit) {
@@ -110,31 +111,6 @@ object Auxiliary {
         } catch (_: PackageManager.NameNotFoundException) {
         }
         val dir = File(Environment.getExternalStorageDirectory(), "Pictures/ScreenshotFaker")
-        if (dir.exists() && dir.isDirectory) return true
-        return isScreenshotFakerPortOpen()
-    }
-
-    private fun isScreenshotFakerPortOpen(): Boolean {
-        return try {
-            val socket = java.net.Socket()
-            val address = java.net.InetSocketAddress("127.0.0.1", 1234)
-            socket.connect(address, 500)
-            socket.soTimeout = 500
-
-            val output = socket.getOutputStream()
-            output.write("Detector".toByteArray())
-            output.flush()
-
-            val input = socket.getInputStream()
-            val buffer = ByteArray(1024)
-            val read = input.read(buffer)
-
-            socket.close()
-            read == -1
-        } catch (_: SocketTimeoutException) {
-            true
-        } catch (_: Exception) {
-            false
-        }
+        return dir.exists() && dir.isDirectory
     }
 }

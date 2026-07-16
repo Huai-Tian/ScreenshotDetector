@@ -16,7 +16,19 @@
     <string name="ScreenshotFaker">ScreenshotFaker特征</string>
     <string name="detect_again">重新检测</string>
     <string name="require_permission">工作需要权限</string>
-    <string name="no_detection_item_yet">暂无检测项</string>
+    <string name="no_detection_items_yet">暂无检测项</string>
+    <string name="more">更多</string>
+    <string name="open_source">开放源代码</string>
+    <string name="info">关于</string>
+    <string name="description_first">本软件是一款专注于屏幕行为检测的安全工具，帮助用户实时感知设备上可能发生的截屏、录屏、投屏等屏幕内容捕获行为，并监测设备环境中的潜在风险状态。</string>
+    <string name="description_second">完全免费！禁止倒卖！禁止用于非法违规用途、禁止用于商业用途。</string>
     <string name="status_abnormal">异常</string>
     <string name="status_normal">正常</string>
+    <string name="user_agreement">用户协议</string>
+    <string name="solve_equation">给出以下二次方程的任意一个根（保留一位小数）：</string>
+    <string name="x_value">x 值</string>
+    <string name="agreed">[已同意]</string>
+    <string name="close">关闭</string>
+    <string name="agree_and_continue">同意并继续</string>
+    <string name="disagree_and_exit">不同意并退出</string>
 </resources>

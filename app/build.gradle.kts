@@ -4,20 +4,27 @@ plugins {
 }
 
 android {
-    namespace = "detector.screenshot"
+    namespace = "detect.screenshot"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
         }
     }
-
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        dex {
+            useLegacyPackaging = true
+        }
+    }
     defaultConfig {
-        applicationId = "detector.screenshot"
+        applicationId = "detect.screenshot"
         minSdk = 29
         //noinspection OldTargetApi
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

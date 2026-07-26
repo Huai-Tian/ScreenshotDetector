@@ -1,4 +1,4 @@
-package detector.screenshot
+package detect.screenshot
 
 import android.Manifest
 import android.content.Context
@@ -28,8 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
-import detector.screenshot.pages.AgreementCompose
-import detector.screenshot.pages.HomeCompose
+import detect.screenshot.pages.AgreementCompose
+import detect.screenshot.pages.HomeCompose
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

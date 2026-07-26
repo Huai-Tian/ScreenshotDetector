@@ -1,4 +1,4 @@
-package detector.screenshot.pages
+package detect.screenshot.pages
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,7 +31,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import detector.screenshot.R
+import detect.screenshot.R
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 

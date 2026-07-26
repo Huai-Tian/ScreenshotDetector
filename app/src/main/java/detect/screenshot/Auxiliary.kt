@@ -1,4 +1,4 @@
-package detector.screenshot
+package detect.screenshot
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo

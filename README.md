@@ -1,60 +1,131 @@
 # ScreenshotDetector
 
-**An application designed to detect the presence of screen capture, screen recording, and screen sharing activities on the device.**
+[简体中文](README_ZH.md) | English
 
-**一个用于检测用户是否存在截屏，录屏和屏幕共享行为的软件**
+---
 
-**This app is the opposite of [ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker). It detects if the app itself is being screenshotted, recorded, or shared via screen-sharing, and whether the runtime environment is secure.**
+## 📖 Introduction
 
-**此应用程序代表着[ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker)的对立面，用于检测自身是否被截屏、录屏或共享屏幕，以及是否处于风险环境。**
+**ScreenshotDetector** is a tool for detecting screenshot, screen recording, and screen sharing activities on the device.
 
-**Detection Method**
-* **Detect key-press screenshots via ScreenCaptureCallback.**
-* **Detect screen recording via ScreenRecordingCallback.**
-* **Detect screen mirroring via DisplayManager.**
-* **Monitor the status of the MediaProjection service.**
-* **Monitor the media library via ContentObserver.**
-* **Basic device environment security detection: Developer options, USB debugging, and Accessibility mode.**
-* **Monitor files via FileObserver.**
-* **Monitor MediaRouter for auxiliary detection.**
-* **Suspicious behavior detection for screen switching, picture-in-picture, and small-window mode.**
-* **Detect ScreenshotFaker characteristics.**
+It operates at the application layer, detecting screen capture events via system APIs, and offers a contrasting research perspective to [ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker).
 
-**检测方式**
-* **通过 ScreenCaptureCallback 检测按键截屏**
-* **通过 ScreenRecordingCallback 检测是否存在录屏**
-* **通过 DisplayManager 检测是否存在投屏**
-* **监听 MediaProjection 服务状态**
-* **通过 ContentObserver 监听媒体库**
-* **基础的设备环境安全检测：开发者选项，USB调试和无障碍模式**
-* **通过 FileObserver 监听文件**
-* **监听 MediaRouter 用于辅助**
-* **可疑行为检测：切屏，画中画或小窗模式**
-* **检测是否存在 ScreenshotFaker 特征**
+**Note**: This tool relies on application-layer detection and has limited capability against system framework-level behaviors. It is intended as an auxiliary detection reference.
 
-**Important Notice**\
-This software is currently in the early stages of development. Many features may have bugs or limitations. I sincerely apologize for any errors or issues you may encounter.You are also welcome to submit Issues and Pull Requests!
+---
 
-**重要提示**\
-本软件尚在开发早期阶段，功能可能存在各种问题和不足，如果你在使用过程中遇到任何错误，我深感抱歉。同时也欢迎您提交 Issue 和 Pull Request！
+## ✨ Features
 
-**Contact**\
-Welcome to join us for communication and feedback: [QQ](https://qm.qq.com/q/j2NM49cd8c)\
-Alternatively, you can directly submit issues and suggestions on the project's Issue page. I will actively respond and do my best to resolve them.
+- **Key‑press screenshot detection**  
+  Detects system key‑press screenshot events via `ScreenCaptureCallback`
 
-**联系方式**\
-欢迎加入我们进行交流和反馈：[QQ](https://qm.qq.com/q/j2NM49cd8c)\
-或者，你也可以直接在本项目的 Issue 页面提交问题和建议，我会积极回复并尽力解决。
+- **Screen recording detection**  
+  Detects screen recording activity via `ScreenRecordingCallback`
 
-**Disclaimer**\
-This project is intended for **security research**, **software testing**, and **educational purposes** only.
-Please do not use this project for any illegal purposes (including but not limited to cheating in exams and data falsification).
-Users must assume all legal responsibilities arising from the use of this project.
+- **Screen mirroring detection**  
+  Detects screen mirroring or casting status via `DisplayManager`
 
-**免责声明**\
-本项目仅供**安全研究、软件测试和教育目的**使用。  
-请勿将本项目用于任何非法用途（包括但不限于考试作弊，数据造假）。  
-使用者需自行承担因使用本项目而产生的一切法律责任。
+- **MediaProjection monitoring**  
+  Monitors the running status of the `MediaProjection` service
 
-**Thank you for your attention and support!**\
-**感谢你的关注和支持！**
+- **Media library monitoring**  
+  Monitors media library changes via `ContentObserver`
+
+- **Device environment security checks**  
+  Detects developer options, USB debugging, Accessibility mode, and other risk indicators
+
+- **File monitoring**  
+  Monitors file changes via `FileObserver`
+
+- **Auxiliary detection**  
+  Assists in detecting casting and mirroring via `MediaRouter`
+
+- **Suspicious behavior detection**  
+  Detects screen switching, picture‑in‑picture, small‑window mode, and other suspicious operations
+
+- **ScreenshotFaker feature detection**  
+  Detects whether ScreenshotFaker‑related traces exist on the device
+
+- **More features coming soon...**
+
+---
+
+## ⚙️ Technical Details
+
+### Technical Comparison with ScreenshotFaker
+
+- **ScreenshotFaker**:
+    - LSPosed mode: Operates at the **system framework layer**, hooking system APIs to intercept and forge screenshot events
+    - Shizuku/Root mode: Operates at the **privileged layer**, leveraging system API calls to replace screenshot content and bypass detection
+
+- **ScreenshotDetector**:
+    - Operates at the **application layer**, detecting screenshot status via public system APIs. It has limited detection capability against system framework-layer behaviors (e.g., LSPosed) and some detection capability against privileged-layer behaviors (e.g., Shizuku/Root).
+
+### Detection Principles
+
+This tool is implemented based on Android public system APIs:
+
+- `ScreenCaptureCallback`: Detects key‑press screenshots (Android 10+)
+- `ScreenRecordingCallback`: Detects screen recording activity (Android 15+)
+- `DisplayManager`: Detects screen mirroring/casting status
+- `MediaProjection`: Detects screen projection service status
+
+---
+
+## 🚫 Non‑Commercial Statement
+
+This project is initiated by the developer out of personal interest and for technical research purposes, and is **non-commercial** in nature:
+
+- **Permanently Free**:  
+  This project is completely free, with **no paid features, memberships, subscriptions, or in-app purchases**. All features are fully accessible to all users.
+
+- **No Sponsorship Channels**:  
+  The author has **never opened any sponsorship channels**, nor does the author **accept any financial donations** — to maintain the project's neutrality and purity.
+
+- **Non-Profit Purpose**:  
+  This project involves no commercial operations, and the author derives no direct or indirect financial benefit from it.
+
+- **Resale Prohibited**:  
+  Resale, redistribution for profit, or commercial use of this project is strictly prohibited. Please obtain it only from this repository (GitHub) or other officially designated channels. The developer assumes no responsibility for any issues arising from unofficial sources.
+
+- **Research-Oriented**:  
+  This project is consistently positioned for **security research, privacy protection, and software testing** — providing a research tool for the community, not a commercial product. Any commercial use of this project is the user's own initiative and is unrelated to this project.
+
+---
+
+## ⚖️ Disclaimer
+
+- **Purpose Limitation**:  
+  This project is intended for **privacy protection, security research, software testing, and educational purposes** only.  
+  Do not use this project for any illegal purposes (including but not limited to exam cheating and data falsification).
+
+- **No Warranty**:  
+  This software is provided under the terms of its license, **without any express or implied warranties**, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+- **Limitation of Liability**:  
+  To the fullest extent permitted by applicable law, **in no event shall the author or contributors be liable** for any direct, indirect, incidental, special, or consequential damages arising out of or in connection with the use or inability to use this software, even if advised of the possibility of such damages.
+
+- **User Responsibility**:  
+  Users assume all legal responsibilities arising from the use of this project.
+
+- **Final Interpretation**:  
+  The final interpretation of this disclaimer belongs to the author of this project.
+
+---
+
+## 💬 Contact
+
+- QQ: https://qm.qq.com/q/j2NM49cd8c
+- Telegram: https://t.me/ScreenshotFaker
+
+You are welcome to submit issues, suggestions, or bug reports via GitHub Issues.
+
+---
+
+## ⭐ Support the Project
+
+If you find this project helpful, or if you recognize its value in technical research, consider giving it a ⭐ on GitHub.
+
+Your support helps more people discover this project, and also lets the author feel the significance of continued maintenance.
+
+Thank you for your recognition.

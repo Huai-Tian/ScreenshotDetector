@@ -6,7 +6,7 @@
 
 ## 📖 项目简介
 
-截图检测 (ScreenshotDetector) 是一个用于检测设备截屏、录屏和屏幕共享行为的工具。
+**截图检测 (ScreenshotDetector)** 是一个用于检测设备截屏、录屏和屏幕共享行为的工具。
 
 它从应用层出发，通过系统 API 对截录屏行为进行检测，与 [ScreenshotFaker](https://github.com/Huai-Tian/ScreenshotFaker) 形成攻防对照研究的视角。
 

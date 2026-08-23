@@ -42,6 +42,7 @@ It operates at the application layer, detecting screen capture events via system
 
 - **Suspicious behavior detection**  
   Detects screen switching, picture‑in‑picture, small‑window mode, and other suspicious operations
+  Detect floating windows using `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`
 
 - **ScreenshotFaker feature detection**  
   Detects whether ScreenshotFaker‑related traces exist on the device
@@ -69,6 +70,7 @@ This tool is implemented based on Android public system APIs:
 - `ScreenRecordingCallback`: Detects screen recording activity (Android 15+)
 - `DisplayManager`: Detects screen mirroring/casting status
 - `MediaProjection`: Detects screen projection service status
+- `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` (Android 12+): Detect the presence of floating windows
 
 ---
 
@@ -85,22 +87,28 @@ This project is initiated by the developer out of personal interest and for tech
 - **Non-Profit Purpose**:  
   This project involves no commercial operations, and the author derives no direct or indirect financial benefit from it.
 
+- **Research-Oriented**:  
+  This project is consistently positioned for **security research, software testing, and educational purposes** — providing a research tool for the community, not a commercial product. Any commercial use of this project is the user's own initiative and is unrelated to this project.
+
 - **Resale Prohibited**:  
   Resale, redistribution for profit, or commercial use of this project is strictly prohibited. Please obtain it only from this repository (GitHub) or other officially designated channels. The developer assumes no responsibility for any issues arising from unofficial sources.
-
-- **Research-Oriented**:  
-  This project is consistently positioned for **security research, privacy protection, and software testing** — providing a research tool for the community, not a commercial product. Any commercial use of this project is the user's own initiative and is unrelated to this project.
 
 ---
 
 ## ⚖️ Disclaimer
 
 - **Purpose Limitation**:  
-  This project is intended for **privacy protection, security research, software testing, and educational purposes** only.  
-  Do not use this project for any illegal purposes (including but not limited to exam cheating and data falsification).
+  This project is intended for **security research, software testing, and educational purposes** only.  
+  Do not use this project for any illegal purposes.
+
+- **Consequences Warning**:  
+  The detection results provided by this software are **for security research reference only and should not be relied upon as absolute security evidence**. You should assess the risks before using it. The developer and contributors **are not responsible for any loss or consequences arising from reliance on the detection results**.
 
 - **No Warranty**:  
   This software is provided under the terms of its license, **without any express or implied warranties**, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+- **Compatibility Disclaimer**:  
+  This software **does not guarantee full compatibility with all OS versions, device models, or third-party applications**. The developer assumes no responsibility for functional issues or losses caused by system differences, application updates, or other uncontrollable factors.
 
 - **Limitation of Liability**:  
   To the fullest extent permitted by applicable law, **in no event shall the author or contributors be liable** for any direct, indirect, incidental, special, or consequential damages arising out of or in connection with the use or inability to use this software, even if advised of the possibility of such damages.

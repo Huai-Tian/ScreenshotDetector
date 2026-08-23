@@ -1,15 +1,15 @@
 [versions]
 agp = "9.3.1"
-coreKtx = "1.16.0"
+coreKtx = "1.19.0"
 junit = "4.13.2"
-junitVersion = "1.1.5"
-espressoCore = "3.5.1"
-lifecycleRuntimeKtx = "2.6.2"
-activityCompose = "1.8.2"
+junitVersion = "1.3.0"
+espressoCore = "3.7.0"
+lifecycleRuntimeKtx = "2.11.0"
+activityCompose = "1.13.0"
 kotlin = "2.4.10"
-composeBom = "2026.02.01"
-materialIconsCore = "1.7.5"
-mediarouter = "1.7.0"
+composeBom = "2026.08.00"
+materialIconsCore = "1.7.8"
+mediarouter = "1.8.1"
 material3 = "1.4.0"
 
 [libraries]

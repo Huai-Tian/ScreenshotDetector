@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
@@ -25,6 +26,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.edit
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
@@ -40,7 +42,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.function.Consumer
 import kotlin.time.Duration.Companion.milliseconds
-import androidx.core.content.edit
 
 class MainActivity : ComponentActivity() {
     private var screenCaptureCallback: ScreenCaptureCallback? = null
@@ -68,6 +69,10 @@ class MainActivity : ComponentActivity() {
     private var behaviorPollingJob: Job? = null
     private lateinit var sharedPreferences: SharedPreferences
     private var showHome by mutableStateOf(false)
+
+    // ========== 新增：触摸遮挡状态 ==========
+    private var isTouchObscured = false
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -125,6 +130,26 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    // ========== 新增：拦截触摸事件，检测悬浮窗遮挡 ==========
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        ev?.let {
+            var obscured = (it.flags and MotionEvent.FLAG_WINDOW_IS_OBSCURED) != 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                obscured = obscured or ((it.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0)
+            }
+
+            if (obscured != isTouchObscured) {
+                isTouchObscured = obscured
+                if (isBehaviorDetectionActive && !isBehaviorPaused) {
+                    behaviorRiskyCallback?.let { (onRisky, onSafe) ->
+                        checkBehaviorState(onRisky, onSafe)
+                    }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     // ---------- 截屏检测 ----------
@@ -464,11 +489,13 @@ class MainActivity : ComponentActivity() {
         behaviorPollingJob = null
     }
 
+    // ========== 修改：增加触摸遮挡风险条件 ==========
     private fun isBehaviorRisky(): Boolean {
         if (isBehaviorPaused) return false
         if (isInBackground) return true
         if (isInMultiWindowMode) return true
         if (isInPictureInPictureMode) return true
+        if (isTouchObscured) return true
         return false
     }
 

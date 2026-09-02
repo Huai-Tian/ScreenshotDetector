@@ -1,7 +1,6 @@
 package detect.screenshot
 
 import android.Manifest
-import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.database.ContentObserver
@@ -24,6 +23,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -55,23 +55,21 @@ class MainActivity : ComponentActivity() {
     private var fileObserver: FileObserver? = null
     private var lastFileObserverTime = 0L
     private var isBehaviorDetectionActive = false
-    private var lastBehaviorRisky = false
-    private var behaviorRiskyCallback: Pair<() -> Unit, () -> Unit>? = null
+    private var behaviorIssueCallback: ((DetectionItems) -> Unit)? = null
     private var environmentObserver: ContentObserver? = null
     private var accessibilityListener: AccessibilityManager.AccessibilityStateChangeListener? = null
-    private var lastEnvironmentRisky = false
-    private val behaviorHandler = Handler(Looper.getMainLooper())
-    private var isBehaviorPaused = false
-    private var isInBackground = false
-    private var isResuming = false
+    private var environmentIssueCallback: ((DetectionItems) -> Unit)? = null
     private var screenshotFakerCheckJob: Job? = null
-    private var lastScreenshotFakerRisky = false
     private var behaviorPollingJob: Job? = null
     private lateinit var sharedPreferences: SharedPreferences
     private var showHome by mutableStateOf(false)
 
-    // ========== 新增：触摸遮挡状态 ==========
+    // ========== 异常检测结果(粘性)：一旦检出持续显示，只能通过重置清除 ==========
+    val detectedIssues = mutableStateListOf<DetectionItems>()
+
+    // ========== 触摸遮挡状态(悬浮窗检测信号) ==========
     private var isTouchObscured = false
+    private var isInBackground = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -95,28 +93,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             if (showHome) {
                 HomeCompose(
-                    onStartKeyPressDetection = ::startKeyPressDetection,
-                    onStopKeyPressDetection = ::stopKeyPressDetection,
-                    onStartScreenRecordingDetection = ::startScreenRecordingDetection,
-                    onStopScreenRecordingDetection = ::stopScreenRecordingDetection,
-                    onStartMirroringDetection = ::startMirroringDetection,
-                    onStopMirroringDetection = ::stopMirroringDetection,
-                    onStartMediaProjectionDetection = ::startMediaProjectionDetection,
-                    onStopMediaProjectionDetection = ::stopMediaProjectionDetection,
-                    onStartMediaRouterDetection = ::startMediaRouterDetection,
-                    onStopMediaRouterDetection = ::stopMediaRouterDetection,
-                    onStartMediaLibraryDetection = ::startMediaLibraryDetection,
-                    onStopMediaLibraryDetection = ::stopMediaLibraryDetection,
-                    onStartFileChangesDetection = ::startFileChangesDetection,
-                    onStopFileChangesDetection = ::stopFileChangesDetection,
-                    onStartEnvironmentDetection = ::startEnvironmentDetection,
-                    onStopEnvironmentDetection = ::stopEnvironmentDetection,
-                    onStartBehaviorDetection = ::startBehaviorDetection,
-                    onStopBehaviorDetection = ::stopBehaviorDetection,
-                    onDialogShow = { pauseBehaviorDetection() },
-                    onDialogDismiss = { resumeBehaviorDetection() },
-                    onStartScreenshotFakerDetection = ::startScreenshotFakerDetection,
-                    onStopScreenshotFakerDetection = ::stopScreenshotFakerDetection,
+                    activity = this,
+                    issues = detectedIssues
                 )
             } else {
                 AgreementCompose(
@@ -132,20 +110,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ========== 新增：拦截触摸事件，检测悬浮窗遮挡 ==========
+    // ========== 拦截触摸事件，检测悬浮窗遮挡 ==========
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
         ev?.let {
             var obscured = (it.flags and MotionEvent.FLAG_WINDOW_IS_OBSCURED) != 0
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 obscured = obscured or ((it.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0)
             }
-
             if (obscured != isTouchObscured) {
                 isTouchObscured = obscured
-                if (isBehaviorDetectionActive && !isBehaviorPaused) {
-                    behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                        checkBehaviorState(onRisky, onSafe)
-                    }
+                if (obscured && isBehaviorDetectionActive) {
+                    behaviorIssueCallback?.invoke(DetectionItems.FLOATING_WINDOW)
                 }
             }
         }
@@ -153,16 +128,18 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- 截屏检测 ----------
-    private fun startKeyPressDetection(onDetected: () -> Unit) {
+    internal fun startKeyPressDetection(onDetected: () -> Unit) {
         if (Auxiliary.KeyPressDetectionAvailable) {
             stopKeyPressDetection()
-            val callback = ScreenCaptureCallback { onDetected() }
+            val callback = ScreenCaptureCallback {
+                onDetected()
+            }
             screenCaptureCallback = callback
             registerScreenCaptureCallback(mainExecutor, callback)
         }
     }
 
-    private fun stopKeyPressDetection() {
+    internal fun stopKeyPressDetection() {
         screenCaptureCallback?.let {
             if (Auxiliary.KeyPressDetectionAvailable) {
                 try {
@@ -175,13 +152,12 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- 录屏检测 ----------
-    private fun startScreenRecordingDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+    internal fun startScreenRecordingDetection(onDetected: () -> Unit) {
         if (Auxiliary.ScreenRecordingDetectionAvailable) {
             stopScreenRecordingDetection()
             val callback = Consumer<Int> { state ->
-                when (state) {
-                    WindowManager.SCREEN_RECORDING_STATE_VISIBLE -> onDetected()
-                    WindowManager.SCREEN_RECORDING_STATE_NOT_VISIBLE -> onStopped()
+                if (state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
+                    onDetected()
                 }
             }
             screenRecordingCallback = callback
@@ -191,7 +167,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopScreenRecordingDetection() {
+    internal fun stopScreenRecordingDetection() {
         screenRecordingCallback?.let {
             if (Auxiliary.ScreenRecordingDetectionAvailable) {
                 try {
@@ -207,8 +183,7 @@ class MainActivity : ComponentActivity() {
     // ---------- 公共的 DisplayListener 创建逻辑 ----------
     private fun createDisplayListener(
         dm: DisplayManager,
-        onDetected: () -> Unit,
-        onStopped: () -> Unit
+        onDetected: () -> Unit
     ): DisplayManager.DisplayListener {
         return object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) {
@@ -227,10 +202,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            override fun onDisplayRemoved(displayId: Int) {
-                if (!Auxiliary.hasNonDefaultDisplay(dm.displays)) {
-                    onStopped()
-                }
+            override fun onDisplayRemoved(displayId: Int) { /* 可选 */
             }
 
             override fun onDisplayChanged(displayId: Int) { /* 可选 */
@@ -239,10 +211,10 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- 投屏/镜像检测 ----------
-    private fun startMirroringDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+    internal fun startMirroringDetection(onDetected: () -> Unit) {
         stopMirroringDetection()
         val dm = getSystemService(DISPLAY_SERVICE) as DisplayManager
-        val listener = createDisplayListener(dm, onDetected, onStopped)
+        val listener = createDisplayListener(dm, onDetected)
         displayListener = listener
         dm.registerDisplayListener(listener, null)
         if (Auxiliary.hasNonDefaultDisplay(dm.displays)) {
@@ -250,7 +222,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopMirroringDetection() {
+    internal fun stopMirroringDetection() {
         displayListener?.let {
             try {
                 (getSystemService(DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it)
@@ -261,10 +233,10 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- MediaProjection 检测 ----------
-    private fun startMediaProjectionDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+    internal fun startMediaProjectionDetection(onDetected: () -> Unit) {
         stopMediaProjectionDetection()
         val dm = getSystemService(DISPLAY_SERVICE) as DisplayManager
-        val listener = createDisplayListener(dm, onDetected, onStopped)
+        val listener = createDisplayListener(dm, onDetected)
         mediaProjectionListener = listener
         dm.registerDisplayListener(listener, null)
         if (Auxiliary.hasNonDefaultDisplay(dm.displays)) {
@@ -272,7 +244,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopMediaProjectionDetection() {
+    internal fun stopMediaProjectionDetection() {
         mediaProjectionListener?.let {
             try {
                 (getSystemService(DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(it)
@@ -283,7 +255,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- MediaRouter 检测 ----------
-    private fun startMediaRouterDetection(onConnected: () -> Unit, onDisconnected: () -> Unit) {
+    internal fun startMediaRouterDetection(onConnected: () -> Unit) {
         stopMediaRouterDetection()
         mediaRouter = MediaRouter.getInstance(this)
         val selector = MediaRouteSelector.Builder()
@@ -296,20 +268,14 @@ class MainActivity : ComponentActivity() {
             }
 
             @Deprecated("Deprecated in Java")
-            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                if (mediaRouter?.routes?.any { !it.isDefault } == false) {
-                    onDisconnected()
-                }
+            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) { /* 可选 */
             }
 
             override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
                 if (!route.isDefault) onConnected()
             }
 
-            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                if (mediaRouter?.routes?.any { !it.isDefault } == false) {
-                    onDisconnected()
-                }
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) { /* 可选 */
             }
 
             override fun onRouteChanged(
@@ -325,7 +291,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopMediaRouterDetection() {
+    internal fun stopMediaRouterDetection() {
         mediaRouterCallback?.let {
             mediaRouter?.removeCallback(it)
         }
@@ -334,7 +300,7 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- 媒体库监听 ----------
-    private fun startMediaLibraryDetection(onDetected: () -> Unit) {
+    internal fun startMediaLibraryDetection(onDetected: () -> Unit) {
         if (!Auxiliary.hasStoragePermission(this)) {
             pendingMediaLibraryCallback = onDetected
             val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -349,7 +315,6 @@ class MainActivity : ComponentActivity() {
         val contentResolver = contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                super.onChange(selfChange, uri)
                 Auxiliary.checkForScreenshot(contentResolver, onDetected)
             }
         }
@@ -361,7 +326,7 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private fun stopMediaLibraryDetection() {
+    internal fun stopMediaLibraryDetection() {
         mediaLibraryObserver?.let {
             contentResolver.unregisterContentObserver(it)
             mediaLibraryObserver = null
@@ -369,13 +334,15 @@ class MainActivity : ComponentActivity() {
     }
 
     // ---------- FileObserver 检测 ----------
-    private fun startFileChangesDetection(onDetected: () -> Unit) {
+    internal fun startFileChangesDetection(onDetected: () -> Unit) {
         stopFileChangesDetection()
         val screenshotsDir = File(
             Environment.getExternalStorageDirectory(),
             "Pictures/Screenshots"
         )
-        if (!screenshotsDir.exists()) return
+        if (!screenshotsDir.exists()) {
+            return
+        }
         val observer = object : FileObserver(screenshotsDir, CREATE or MOVED_TO) {
             override fun onEvent(event: Int, path: String?) {
                 if (path != null) {
@@ -393,20 +360,19 @@ class MainActivity : ComponentActivity() {
         observer.startWatching()
     }
 
-    private fun stopFileChangesDetection() {
+    internal fun stopFileChangesDetection() {
         fileObserver?.stopWatching()
         fileObserver = null
     }
 
-    // ---------- 环境安全检测 ----------
-    private fun startEnvironmentDetection(onRisky: () -> Unit, onSafe: () -> Unit) {
+    // ---------- 环境安全检测(ADB/开发者选项/无障碍，分别上报) ----------
+    internal fun startEnvironmentDetection(onIssue: (DetectionItems) -> Unit) {
         stopEnvironmentDetection()
-        lastEnvironmentRisky = false
-        val context = this
+        environmentIssueCallback = onIssue
 
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                checkEnvironmentState(context, onRisky, onSafe)
+                checkEnvironmentState()
             }
         }
         environmentObserver = observer
@@ -418,15 +384,15 @@ class MainActivity : ComponentActivity() {
 
         val am = getSystemService(ACCESSIBILITY_SERVICE) as AccessibilityManager
         val listener = AccessibilityManager.AccessibilityStateChangeListener {
-            checkEnvironmentState(context, onRisky, onSafe)
+            checkEnvironmentState()
         }
         accessibilityListener = listener
         am.addAccessibilityStateChangeListener(listener)
 
-        checkEnvironmentState(context, onRisky, onSafe)
+        checkEnvironmentState()
     }
 
-    private fun stopEnvironmentDetection() {
+    internal fun stopEnvironmentDetection() {
         environmentObserver?.let {
             contentResolver.unregisterContentObserver(it)
             environmentObserver = null
@@ -436,86 +402,61 @@ class MainActivity : ComponentActivity() {
             am.removeAccessibilityStateChangeListener(it)
             accessibilityListener = null
         }
+        environmentIssueCallback = null
     }
 
-    private fun checkEnvironmentState(context: Context, onRisky: () -> Unit, onSafe: () -> Unit) {
-        val risky = Auxiliary.isEnvironmentRisky(context)
-        if (risky != lastEnvironmentRisky) {
-            lastEnvironmentRisky = risky
-            if (risky) onRisky()
-            else onSafe()
+    private fun checkEnvironmentState() {
+        Auxiliary.environmentIssues(this).forEach { issue ->
+            environmentIssueCallback?.invoke(issue)
         }
     }
 
-    // ---------- 可疑行为检测 ----------
-    fun pauseBehaviorDetection() {
-        isBehaviorPaused = true
-        behaviorRiskyCallback?.let { (_, onSafe) ->
-            if (lastBehaviorRisky) {
-                lastBehaviorRisky = false
-                onSafe()
-            }
-        }
-    }
-
-    fun resumeBehaviorDetection() {
-        behaviorHandler.removeCallbacksAndMessages(null)
-        behaviorHandler.postDelayed({
-            isBehaviorPaused = false
-        }, 500)
-    }
-
-    private fun startBehaviorDetection(onRisky: () -> Unit, onSafe: () -> Unit) {
+    // ---------- 可疑行为检测(切屏/小窗/画中画/悬浮窗，分别上报) ----------
+    internal fun startBehaviorDetection(onIssue: (DetectionItems) -> Unit) {
         stopBehaviorDetection()
         isBehaviorDetectionActive = true
-        behaviorRiskyCallback = onRisky to onSafe
-        checkBehaviorState(onRisky, onSafe)
+        behaviorIssueCallback = onIssue
+        checkBehaviorState()
         behaviorPollingJob = CoroutineScope(Dispatchers.Main).launch {
             while (isActive) {
                 delay(Auxiliary.BEHAVIOR_POLL_INTERVAL.milliseconds)
-                if (isBehaviorDetectionActive && !isBehaviorPaused) {
-                    checkBehaviorState(onRisky, onSafe)
-                }
+                checkBehaviorState()
             }
         }
     }
 
-    private fun stopBehaviorDetection() {
+    internal fun stopBehaviorDetection() {
         isBehaviorDetectionActive = false
-        behaviorRiskyCallback = null
-        lastBehaviorRisky = false
-        isResuming = false
+        behaviorIssueCallback = null
         behaviorPollingJob?.cancel()
         behaviorPollingJob = null
     }
 
-    // ========== 修改：增加触摸遮挡风险条件 ==========
-    private fun isBehaviorRisky(): Boolean {
-        if (isBehaviorPaused) return false
-        if (isInBackground) return true
-        if (isInMultiWindowMode) return true
-        if (isInPictureInPictureMode) return true
-        if (isTouchObscured) return true
-        return false
-    }
-
-    private fun checkBehaviorState(onRisky: () -> Unit, onSafe: () -> Unit) {
-        if (!isBehaviorDetectionActive || isResuming) return
-        val risky = isBehaviorRisky()
-        if (risky != lastBehaviorRisky) {
-            lastBehaviorRisky = risky
-            if (risky) onRisky()
-            else onSafe()
+    /**
+     * 逐项检查行为异常并上报。
+     * 结果是粘性的(由 UI 层持久显示)，因此重复上报同一项是无害的幂等操作；
+     * 轮询保证初始状态(如启动时已处于分屏)也能被检出。
+     */
+    private fun checkBehaviorState() {
+        if (!isBehaviorDetectionActive) return
+        val callback = behaviorIssueCallback ?: return
+        if (isInBackground) {
+            callback(DetectionItems.SCREEN_SWITCH)
+        }
+        if (isInMultiWindowMode) {
+            callback(DetectionItems.MULTI_WINDOW)
+        }
+        if (isInPictureInPictureMode) {
+            callback(DetectionItems.PICTURE_IN_PICTURE)
+        }
+        if (isTouchObscured) {
+            callback(DetectionItems.FLOATING_WINDOW)
         }
     }
 
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
-        if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                checkBehaviorState(onRisky, onSafe)
-            }
-        }
+        checkBehaviorState()
     }
 
     override fun onPictureInPictureModeChanged(
@@ -523,27 +464,18 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                checkBehaviorState(onRisky, onSafe)
-            }
-        }
+        checkBehaviorState()
     }
 
     // ---------- ScreenshotFaker检测 ----------
-    private fun startScreenshotFakerDetection(onDetected: () -> Unit, onStopped: () -> Unit) {
+    internal fun startScreenshotFakerDetection(onDetected: () -> Unit) {
         stopScreenshotFakerDetection()
-        lastScreenshotFakerRisky = false
         screenshotFakerCheckJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
                 val present = Auxiliary.isScreenshotFakerPresent(this@MainActivity)
-                withContext(Dispatchers.Main) {
-                    if (present && !lastScreenshotFakerRisky) {
-                        lastScreenshotFakerRisky = true
+                if (present) {
+                    withContext(Dispatchers.Main) {
                         onDetected()
-                    } else if (!present && lastScreenshotFakerRisky) {
-                        lastScreenshotFakerRisky = false
-                        onStopped()
                     }
                 }
                 delay(5000.milliseconds)
@@ -551,10 +483,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun stopScreenshotFakerDetection() {
+    internal fun stopScreenshotFakerDetection() {
         screenshotFakerCheckJob?.cancel()
         screenshotFakerCheckJob = null
-        lastScreenshotFakerRisky = false
     }
 
     override fun onDestroy() {
@@ -574,26 +505,11 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         isInBackground = true
-        if (isResuming) isResuming = false
-        if (isBehaviorDetectionActive && !isBehaviorPaused) {
-            behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                checkBehaviorState(onRisky, onSafe)
-            }
-        }
+        checkBehaviorState()
     }
 
     override fun onResume() {
         super.onResume()
         isInBackground = false
-        isResuming = true
-        behaviorHandler.removeCallbacksAndMessages(null)
-        behaviorHandler.postDelayed({
-            isResuming = false
-            if (isBehaviorDetectionActive && !isBehaviorPaused) {
-                behaviorRiskyCallback?.let { (onRisky, onSafe) ->
-                    checkBehaviorState(onRisky, onSafe)
-                }
-            }
-        }, 1000)
     }
 }

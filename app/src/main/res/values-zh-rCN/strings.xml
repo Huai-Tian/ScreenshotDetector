@@ -14,6 +14,16 @@
     <string name="screen_mirroring">屏幕共享</string>
     <string name="suspicious_behavior">可疑行为</string>
     <string name="ScreenshotFaker">ScreenshotFaker特征</string>
+    <string name="screen_switch">切屏</string>
+    <string name="multi_window">小窗/分屏</string>
+    <string name="picture_in_picture">画中画</string>
+    <string name="floating_window">存在悬浮窗</string>
+    <string name="adb_enabled">ADB 调试已开启</string>
+    <string name="developer_options">开发者选项已开启</string>
+    <string name="accessibility_service">无障碍服务已开启</string>
+    <string name="detected_issues_header">已检测到的异常：</string>
+    <string name="reset_detection">重置检测结果</string>
+    <string name="monitoring">监测中…</string>
     <string name="detect_again">重新检测</string>
     <string name="require_permission">工作需要权限</string>
     <string name="no_detection_items_yet">暂无检测项</string>

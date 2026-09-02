@@ -14,6 +14,16 @@
     <string name="basic_device_environment">Basic device environment</string>
     <string name="suspicious_behavior">Suspicious behavior</string>
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
+    <string name="screen_switch">Screen switch detected</string>
+    <string name="multi_window">Multi-window / freeform window</string>
+    <string name="picture_in_picture">Picture-in-picture</string>
+    <string name="floating_window">Floating window detected</string>
+    <string name="adb_enabled">ADB debugging enabled</string>
+    <string name="developer_options">Developer options enabled</string>
+    <string name="accessibility_service">Accessibility service enabled</string>
+    <string name="detected_issues_header">Detected issues:</string>
+    <string name="reset_detection">Reset results</string>
+    <string name="monitoring">Monitoring…</string>
     <string name="detect_again">Detect again</string>
     <string name="require_permission">Require permission to work</string>
     <string name="no_detection_items_yet">No detection items yet</string>

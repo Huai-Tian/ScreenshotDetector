@@ -18,16 +18,6 @@ import java.io.File
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
 object Auxiliary {
-    const val ID_SCREENSHOT = 0
-    const val ID_RECORDING = 1
-    const val ID_MIRRORING = 2
-    const val ID_ENVIRONMENT = 3
-    const val ID_MEDIA_PROJECTION = 4
-    const val ID_MEDIA_LIBRARY = 5
-    const val ID_MEDIA_ROUTER = 6
-    const val ID_FILE_CHANGES = 7
-    const val ID_SCREENSHOT_FAKER = 8
-    const val ID_BEHAVIOR = 9
     const val BEHAVIOR_POLL_INTERVAL = 1000L
     val KeyPressDetectionAvailable =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
@@ -79,16 +69,33 @@ object Auxiliary {
         }
     }
 
-    fun isEnvironmentRisky(context: Context) =
-        Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1
-                || Settings.Global.getInt(
-            context.contentResolver,
-            Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
-            0
-        ) == 1
-                || (context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager).getEnabledAccessibilityServiceList(
-            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
-        ).isNotEmpty()
+    /**
+     * 环境风险检查：拆分为具体异常项(ADB/开发者选项/无障碍)，
+     * 返回当前存在的全部异常。
+     */
+    fun environmentIssues(context: Context): List<DetectionItems> {
+        val issues = mutableListOf<DetectionItems>()
+        if (Settings.Global.getInt(context.contentResolver, Settings.Global.ADB_ENABLED, 0) == 1) {
+            issues += DetectionItems.ADB_ENABLED
+        }
+        if (Settings.Global.getInt(
+                context.contentResolver,
+                Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
+                0
+            ) == 1
+        ) {
+            issues += DetectionItems.DEVELOPER_OPTIONS
+        }
+        val accessibilityManager =
+            context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        if (accessibilityManager.getEnabledAccessibilityServiceList(
+                AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+            ).isNotEmpty()
+        ) {
+            issues += DetectionItems.ACCESSIBILITY_SERVICE
+        }
+        return issues
+    }
 
     fun hasStoragePermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

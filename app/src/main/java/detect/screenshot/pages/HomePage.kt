@@ -2,6 +2,7 @@ package detect.screenshot.pages
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,7 +63,7 @@ import detect.screenshot.R
 // "正常"状态文字颜色(深绿)
 private val NormalStatusColor = Color(0xFF2E7D32)
 
-// 异常卡片统一背景色(淡灰)
+// 异常卡片统一描边色(淡灰)
 private val IssueCardColor = Color(0xFFE0E0E0)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,7 +80,7 @@ fun HomeCompose(
     var openSource by remember { mutableStateOf(false) }
 
     fun stopAllDetections() {
-        DetectionItems.entries.forEach { it.stop(activity) }
+        DetectionItems.entries.forEach { it.stop(activity.detectionFunctions) }
     }
 
     /**
@@ -90,7 +91,7 @@ fun HomeCompose(
         stopAllDetections()
         issues.clear()
         DetectionItems.entries.forEach { entry ->
-            entry.start(activity) { if (it !in issues) issues.add(it) }
+            entry.start(activity.detectionFunctions) { if (it !in issues) issues.add(it) }
         }
     }
 
@@ -146,54 +147,45 @@ fun HomeCompose(
             )
         }
     ) { padding ->
-        Column(
+        // 内容不足一屏时垂直居中(以顶栏下方区域为参考)，超屏时可滚动且不被顶栏遮挡
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.Center
         ) {
             when {
                 // 监测中，暂无异常
                 issues.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = stringResource(R.string.status_normal),
-                                fontSize = 34.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = NormalStatusColor
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = stringResource(R.string.monitoring),
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.status_normal),
+                            fontSize = 34.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NormalStatusColor
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(R.string.monitoring),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
                     }
                 }
-                // 检出异常：卡片列表(重置通过右上角刷新按钮)
+                // 检出异常：卡片列表(整屏居中，可滚动)
                 else -> {
-                    Text(
-                        text = stringResource(R.string.detected_issues_header),
-                        fontSize = 15.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    LazyColumn(
+                    Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        items(issues.toList()) { issue ->
+                        issues.forEach { issue ->
                             IssueCard(issue)
                         }
                     }
@@ -291,14 +283,15 @@ fun HomeCompose(
     }
 }
 
-// 异常结果卡片：统一淡灰色背景与字号/字重
+// 异常结果卡片：白色背景 + 灰色描边
 @Composable
 private fun IssueCard(issue: DetectionItems) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = IssueCardColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(2.dp, IssueCardColor)
     ) {
         Text(
             text = stringResource(issue.labelRes),

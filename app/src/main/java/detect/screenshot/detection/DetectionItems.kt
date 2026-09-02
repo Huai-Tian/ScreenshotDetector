@@ -2,14 +2,13 @@ package detect.screenshot.detection
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
-import detect.screenshot.MainActivity
 import detect.screenshot.R
 
 /**
  * 检测条目：一条记录 = 一张异常卡片 + 一份检测逻辑。
  *
  * 每个条目携带：
- * - [start] / [stop]：检测的启动/停止回调(以 MainActivity 为接收者)
+ * - [start] / [stop]：检测的启动/停止回调(以 DetectionFunctions 为接收者)
  *
  * 所有检测项默认全部开启，调用方(HomeCompose)遍历 [entries] 即可
  * 完成检测启停，无需逐项配置。
@@ -19,8 +18,8 @@ import detect.screenshot.R
 @Immutable
 enum class DetectionItems(
     @StringRes val labelRes: Int,
-    val start: MainActivity.(onIssue: (DetectionItems) -> Unit) -> Unit = { },
-    val stop: MainActivity.() -> Unit = { }
+    val start: DetectionFunctions.(onIssue: (DetectionItems) -> Unit) -> Unit = { },
+    val stop: DetectionFunctions.() -> Unit = { }
 ) {
     // ---------- 截屏/录屏/投屏 ----------
     KEY_PRESS_SCREENSHOT(
@@ -44,7 +43,7 @@ enum class DetectionItems(
         stop = { stopMediaProjectionDetection() }
     ),
     MEDIA_LIBRARY(
-        R.string.media_library,
+        R.string.media_library_changed,
         start = { onIssue -> startMediaLibraryDetection { onIssue(MEDIA_LIBRARY) } },
         stop = { stopMediaLibraryDetection() }
     ),
@@ -60,7 +59,7 @@ enum class DetectionItems(
 
     // ---------- 媒体 ----------
     FILE_CHANGES(
-        R.string.file_changes,
+        R.string.gallery_file_changed,
         start = { onIssue -> startFileChangesDetection { onIssue(FILE_CHANGES) } },
         stop = { stopFileChangesDetection() }
     ),

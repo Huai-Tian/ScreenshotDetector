@@ -5,8 +5,8 @@
     <string name="cancel">取消</string>
     <string name="config_detect_options">配置检测项</string>
     <string name="key_press_screenshot">按键截屏</string>
-    <string name="media_library">媒体库</string>
-    <string name="file_changes">文件变化</string>
+    <string name="media_library_changed">媒体库变化</string>
+    <string name="gallery_file_changed">图库类文件变化</string>
     <string name="screen_recording">屏幕录制</string>
     <string name="MediaProjection_state">MediaProjection状态</string>
     <string name="MediaRouter_state">MediaRouter状态</string>

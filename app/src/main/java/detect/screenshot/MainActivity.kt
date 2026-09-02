@@ -30,6 +30,7 @@ import androidx.core.content.edit
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
+import detect.screenshot.detection.DetectionItems
 import detect.screenshot.pages.AgreementCompose
 import detect.screenshot.pages.HomeCompose
 import kotlinx.coroutines.CoroutineScope

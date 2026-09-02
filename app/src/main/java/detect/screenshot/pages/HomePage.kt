@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
-import detect.screenshot.DetectionItems
+import detect.screenshot.detection.DetectionItems
 import detect.screenshot.MainActivity
 import detect.screenshot.R
 

@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
+import detect.screenshot.detection.DetectionItems
 import java.io.File
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15

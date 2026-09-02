@@ -1,7 +1,9 @@
-package detect.screenshot
+package detect.screenshot.detection
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
+import detect.screenshot.MainActivity
+import detect.screenshot.R
 
 /**
  * 检测条目：一条记录 = 一张异常卡片 + 一份检测逻辑。

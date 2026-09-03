@@ -47,7 +47,7 @@ It operates at the application layer, detecting screen capture events via system
   Detects floating windows using touch‑obscured signals (`FLAG_WINDOW_IS_OBSCURED` / `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`), plus "focus taken while self is still the foreground app" (`UsageStatsManager`)
 
 - **Freeform window detection**  
-  Detects freeform windows running on specially named virtual displays via reflection
+  Detects freeform windows (ROM mini windows / free-form windows) via focus attribution: the app stays RESUMED while focus and the top app belong to another app — a normal app switch would pause the app first. The detection card shows the package name of the app running in the freeform window
 
 - **Focus loss detection**  
   Detects window focus being persistently taken by other windows while the app is in the foreground
@@ -72,7 +72,7 @@ It operates at the application layer, detecting screen capture events via system
 
 ### Detection Principles
 
-This tool is implemented based on Android public system APIs:
+Based on Android public system APIs:
 
 - `ScreenCaptureCallback`: Detects key‑press screenshots (Android 14+)
 - `ScreenRecordingCallback`: Detects screen recording activity (Android 15+)
@@ -83,10 +83,9 @@ This tool is implemented based on Android public system APIs:
 - `FileObserver`: Detects file creation/move in the screenshots directory
 - `Settings.Global` / `AccessibilityManager`: Detects ADB, developer options, and accessibility services
 - `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` (Android 12+): Detects touch‑obscured signals of floating windows
-- `UsageStatsManager` (requires "Usage access" permission): Queries the foreground app to determine whether focus was taken by a floating window rather than an app switch
+- `UsageStatsManager` (requires "Usage access" permission): Queries the foreground app for window detection attribution — focus taken while self is still the top app indicates a floating window; focus held by another app while the app stays RESUMED (a normal app switch would pause it first) indicates a freeform window, with a freshness filter on `lastTimeUsed` to exclude stale top-app records
 
 Based on Android hidden system APIs (invoked via reflection after exempting non‑SDK interface restrictions with [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass)):
-- `Display.getDisplayInfo()`: Reads virtual display names to detect freeform windows running on specially named virtual displays
 - `WindowManagerGlobal.mViews`: Enumerates this process's window list to rule out false positives caused by the app's own dialogs holding focus
 
 ---
@@ -135,6 +134,12 @@ This project is initiated by the developer out of personal interest and for tech
 
 - **Final Interpretation**:  
   The final interpretation of this disclaimer belongs to the author of this project.
+
+---
+
+## 🙏 Acknowledgements
+
+- LSPosed (HiddenApiBypass)
 
 ---
 

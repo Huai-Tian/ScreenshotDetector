@@ -47,7 +47,7 @@
   通过 `FLAG_WINDOW_IS_OBSCURED` / `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` 触摸遮挡信号，以及"焦点被抢占但前台应用仍是自己"（`UsageStatsManager`）判定悬浮窗存在
 
 - **自由小窗检测**  
-  通过反射读取虚拟显示器名称，检测自由小窗运行在特征命名虚拟显示器上的场景
+  通过焦点归因检测自由小窗（ROM 小窗/自由窗口）：应用保持 RESUMED 而焦点与顶层应用归属其他应用——正常应用切换会先使本应用暂停。检测卡片会显示小窗内应用的包名
 
 - **焦点被抢占检测**  
   检测应用处于前台但窗口焦点被其他窗口持续抢占的行为
@@ -72,7 +72,7 @@
 
 ### 检测原理
 
-本工具基于 Android 系统公开 API 实现：
+基于 Android 系统公开 API 实现：
 - `ScreenCaptureCallback`：检测按键截屏（Android 14+）
 - `ScreenRecordingCallback`：检测录屏行为（Android 15+）
 - `DisplayManager`：检测投屏状态与虚拟显示器
@@ -82,10 +82,9 @@
 - `FileObserver`：检测截图目录文件创建/移动
 - `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务
 - `FLAG_WINDOW_IS_OBSCURED` 和 `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`（Android 12+）：检测悬浮窗的触摸遮挡信号
-- `UsageStatsManager`（需"使用情况访问权"）：查询前台应用，判定焦点是否被悬浮窗而非应用切换抢占
+- `UsageStatsManager`（需"使用情况访问权"）：查询前台应用进行窗口检测归因——焦点被抢占但顶层应用仍是自己判定为悬浮窗；应用保持 RESUMED 而焦点与顶层应用归属他人（正常应用切换会先暂停本应用）判定为自由小窗，并对 `lastTimeUsed` 做新鲜度过滤排除陈旧的顶层应用记录
 
 基于 Android 系统隐藏 API 实现（经 [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) 豁免非 SDK 接口限制后反射调用）：
-- `Display.getDisplayInfo()`：读取虚拟显示器名称，检测运行在特征命名虚拟屏上的自由小窗
 - `WindowManagerGlobal.mViews`：枚举本进程窗口列表，排除自有对话框持有焦点造成的误报
 
 ---
@@ -134,6 +133,13 @@
 
 - **最终解释**：  
   本免责声明的最终解释权归本项目作者所有。
+
+---
+
+## 🙏 致谢
+
+- LSPosed（HiddenApiBypass）
+
 ---
 
 ## 💬 联系方式

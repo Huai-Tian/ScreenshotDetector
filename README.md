@@ -52,6 +52,9 @@ It operates at the application layer, detecting screen capture events via system
 - **Focus loss detection**  
   Detects window focus being persistently taken by other windows while the app is in the foreground
 
+- **Incomplete window presentation detection** (Android 15+)  
+  Detects the app's window falling out of the trusted presentation state (the actually rendered pixel fraction dropping below the threshold) via `TrustedPresentationListener` — triggered by external window occlusion, system overlays, gesture-navigation exit animations, etc. Reported by the signal's own semantics without attributing a specific cause
+
 - **ScreenshotFaker feature detection**  
   Detects whether ScreenshotFaker‑related traces exist on the device
 
@@ -83,10 +86,16 @@ Based on Android public system APIs:
 - `FileObserver`: Detects file creation/move in the screenshots directory
 - `Settings.Global` / `AccessibilityManager`: Detects ADB, developer options, and accessibility services
 - `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` (Android 12+): Detects touch‑obscured signals of floating windows
+- `TrustedPresentationListener` (Android 15+): Detects the app's window falling out of the trusted presentation state, reported as incomplete window presentation
 - `UsageStatsManager` (requires "Usage access" permission): Queries the foreground app for window detection attribution — focus taken while self is still the top app indicates a floating window; focus held by another app while the app stays RESUMED (a normal app switch would pause it first) indicates a freeform window, with a freshness filter on `lastTimeUsed` to exclude stale top-app records
 
 Based on Android hidden system APIs (invoked via reflection after exempting non‑SDK interface restrictions with [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass)):
 - `WindowManagerGlobal.mViews`: Enumerates this process's window list to rule out false positives caused by the app's own dialogs holding focus
+
+### Known Limitations (tested on ColorOS 16 / Android 16)
+
+- **Screen recording detection broken**: `ScreenRecordingCallback` registers fine and its state semantics are correct (returns `NOT_VISIBLE` when not recording; the callback registration is visible in `dumpsys window`), but neither system nor third-party recording ever updates the WMS screen-recording state, so the edge-triggered callback never fires — system recording goes through a ROM-private channel bypassing the public MediaProjection path, and the virtual display created by third-party recorders is not counted as a recording source either. Third-party recording is still covered as a fallback by the MediaProjection detection and the media library / file detections
+- **Freeform window detection broken**: The ROM applies privacy shielding to apps running in mini windows — no usage stats are written and no windowing flag is set — leaving the app layer unable to attribute a mini window vs. a floating window (focus-loss detection still works)
 
 ---
 

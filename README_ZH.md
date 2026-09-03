@@ -52,6 +52,9 @@
 - **焦点被抢占检测**  
   检测应用处于前台但窗口焦点被其他窗口持续抢占的行为
 
+- **窗口显示不完整检测**（Android 15+）  
+  通过 `TrustedPresentationListener` 检测本应用窗口跌出可信呈现态（实际被渲染的像素比例跌破阈值）的行为——外部窗口遮挡、系统浮层、手势导航离场动画等均会触发，按信号本体语义上报，不区分具体成因
+
 - **ScreenshotFaker 特征检测**  
   检测设备中是否存在 ScreenshotFaker 相关特征
 
@@ -82,10 +85,16 @@
 - `FileObserver`：检测截图目录文件创建/移动
 - `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务
 - `FLAG_WINDOW_IS_OBSCURED` 和 `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`（Android 12+）：检测悬浮窗的触摸遮挡信号
+- `TrustedPresentationListener`（Android 15+）：检测本应用窗口跌出可信呈现态，上报窗口显示不完整
 - `UsageStatsManager`（需"使用情况访问权"）：查询前台应用进行窗口检测归因——焦点被抢占但顶层应用仍是自己判定为悬浮窗；应用保持 RESUMED 而焦点与顶层应用归属他人（正常应用切换会先暂停本应用）判定为自由小窗，并对 `lastTimeUsed` 做新鲜度过滤排除陈旧的顶层应用记录
 
 基于 Android 系统隐藏 API 实现（经 [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) 豁免非 SDK 接口限制后反射调用）：
 - `WindowManagerGlobal.mViews`：枚举本进程窗口列表，排除自有对话框持有焦点造成的误报
+
+### 已知限制（实测 ColorOS 16 / Android 16）
+
+- **录屏检测失效**：`ScreenRecordingCallback` 注册与状态语义均正常（未录屏时正确返回 `NOT_VISIBLE`，`dumpsys window` 中回调登记可见），但无论系统录屏还是三方录屏，WMS 录屏状态均不更新，状态翻转的边沿回调永不触发——系统录屏走 ROM 私有通道不经公共 MediaProjection，三方录屏的虚拟显示器也不被计入录屏状态。三方录屏仍可通过 MediaProjection 检测与媒体库/文件检测兜底覆盖
+- **小窗检测失效**：系统对小窗内应用实施隐私屏蔽，不写入用量统计、不设置窗口化标志，应用层无法归因小窗与悬浮窗（焦点被抢占检测仍然有效）
 
 ---
 

@@ -280,6 +280,14 @@ class WindowReflectionDetector(private val activity: MainActivity) {
 
     // ---------- 反射工具 ----------
 
+    /**
+     * 本进程是否存在主窗口之外的窗口(下拉菜单/Dialog 等自身弹层)。
+     * TrustedPresentation 只报告遮挡比例、不含遮挡者身份——自家弹层
+     * 盖住主窗口同样触发回调，悬浮窗检测上报前用它排除自遮挡。
+     */
+    fun hasOwnOverlayingWindow(): Boolean =
+        ownViewRoots().any { it !== activity.window.decorView }
+
     /** 本进程内全部窗口的根 View(WindowManagerGlobal.mViews) */
     @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
     @Suppress("UNCHECKED_CAST")

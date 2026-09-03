@@ -609,8 +609,11 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     /**
      * 可信呈现监听(API 35+，见字段注释)。窗口需先完成 attach(有 windowToken)
-     * 才能注册，故 post 到视图就绪后执行；自家的悬浮窗/对话框遮挡窗口时
-     * 此信号同置 false——由调用方上下文保证(检测器场景无自家浮层)可忽略。
+     * 才能注册，故 post 到视图就绪后执行。
+     *
+     * 自家的下拉菜单/Dialog 也是独立窗口，盖住主窗口同样使信号翻转——
+     * 回调只有 boolean、不含遮挡者身份，故翻转时若本进程存在主窗口
+     * 之外的弹层(见 hasOwnOverlayingWindow)则判定为自遮挡，不上报。
      */
     private fun startTrustedPresentationDetection(onIssue: (DetectionItems, String?) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
@@ -620,7 +623,9 @@ class DetectionFunctions(private val activity: MainActivity) {
         // 悬浮窗盖上来/移开的状态迁移都会回调，取 false 边沿上报
         val thresholds = android.window.TrustedPresentationThresholds(1.0f, 0.99f, 250)
         val consumer = Consumer<Boolean> { trusted ->
-            if (!trusted && !isInBackground) {
+            if (!trusted && !isInBackground &&
+                windowReflectionDetector?.hasOwnOverlayingWindow() != true
+            ) {
                 onIssue(DetectionItems.FLOATING_WINDOW, null)
             }
         }

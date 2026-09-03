@@ -29,20 +29,28 @@
   监听 `MediaProjection` 服务的运行状态
 
 - **媒体库监听**  
-  通过 `ContentObserver` 监听媒体库变化
+  通过 `ContentObserver` 监听媒体库变化，识别新增的截图文件
 
 - **设备环境安全检测**  
   检测开发者选项、USB 调试、无障碍模式等风险项
 
 - **文件监听**  
-  通过 `FileObserver` 监听文件变化
+  通过 `FileObserver` 监听截图目录文件变化
 
 - **辅助检测**  
   通过 `MediaRouter` 辅助检测投屏行为
 
 - **可疑行为检测**  
-  检测切屏、画中画、小窗模式等可疑操作  
-  通过 `FLAG_WINDOW_IS_OBSCURED` 和 `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` 检测悬浮窗
+  检测切屏、分屏、画中画等可疑操作
+
+- **悬浮窗检测**  
+  通过 `FLAG_WINDOW_IS_OBSCURED` / `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` 触摸遮挡信号，以及"焦点被抢占但前台应用仍是自己"（`UsageStatsManager`）判定悬浮窗存在
+
+- **自由小窗检测**  
+  通过反射读取虚拟显示器名称，检测自由小窗运行在特征命名虚拟显示器上的场景
+
+- **焦点被抢占检测**  
+  检测应用处于前台但窗口焦点被其他窗口持续抢占的行为
 
 - **ScreenshotFaker 特征检测**  
   检测设备中是否存在 ScreenshotFaker 相关特征
@@ -65,11 +73,20 @@
 ### 检测原理
 
 本工具基于 Android 系统公开 API 实现：
-- `ScreenCaptureCallback`：检测按键截屏（Android 10+）
+- `ScreenCaptureCallback`：检测按键截屏（Android 14+）
 - `ScreenRecordingCallback`：检测录屏行为（Android 15+）
-- `DisplayManager`：检测投屏状态
+- `DisplayManager`：检测投屏状态与虚拟显示器
 - `MediaProjection`：检测屏幕投影服务状态
-- `FLAG_WINDOW_IS_OBSCURED` 和 `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`（Android 12+）：检测悬浮窗的存在
+- `MediaRouter`：检测外部显示路由
+- `ContentObserver` + `MediaStore`：检测媒体库新增截图
+- `FileObserver`：检测截图目录文件创建/移动
+- `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务
+- `FLAG_WINDOW_IS_OBSCURED` 和 `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`（Android 12+）：检测悬浮窗的触摸遮挡信号
+- `UsageStatsManager`（需"使用情况访问权"）：查询前台应用，判定焦点是否被悬浮窗而非应用切换抢占
+
+基于 Android 系统隐藏 API 实现（经 [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) 豁免非 SDK 接口限制后反射调用）：
+- `Display.getDisplayInfo()`：读取虚拟显示器名称，检测运行在特征命名虚拟屏上的自由小窗
+- `WindowManagerGlobal.mViews`：枚举本进程窗口列表，排除自有对话框持有焦点造成的误报
 
 ---
 

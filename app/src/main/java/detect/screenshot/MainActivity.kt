@@ -58,6 +58,12 @@ class MainActivity : ComponentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    // ========== 窗口焦点变化转发给检测逻辑(反射窗口检测的焦点探测) ==========
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        detectionFunctions.onWindowFocusChanged(hasFocus)
+    }
+
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
         detectionFunctions.onMultiWindowModeChanged()

@@ -1,9 +1,6 @@
 <resources>
     <!--HomePage-->
     <string name="app_name">ScreenshotDetector</string>
-    <string name="confirm">Confirm</string>
-    <string name="cancel">Cancel</string>
-    <string name="config_detect_options">Config detect options</string>
     <string name="key_press_screenshot">Key press screenshot</string>
     <string name="screen_recording">Screen recording</string>
     <string name="screen_mirroring">Screen mirroring</string>
@@ -11,33 +8,27 @@
     <string name="gallery_file_changed">Gallery file changed</string>
     <string name="MediaProjection_state">MediaProjection state</string>
     <string name="MediaRouter_state">MediaRouter state</string>
-    <string name="basic_device_environment">Basic device environment</string>
-    <string name="suspicious_behavior">Suspicious behavior</string>
     <string name="ScreenshotFaker">ScreenshotFaker characteristics</string>
     <string name="screen_switch">Screen switch detected</string>
     <string name="multi_window">Multi-window / freeform window</string>
     <string name="picture_in_picture">Picture-in-picture</string>
     <string name="floating_window">Floating window detected</string>
+    <string name="freeform_window">Freeform window detected</string>
+    <string name="focus_taken">Window focus taken</string>
     <string name="adb_enabled">ADB debugging enabled</string>
     <string name="developer_options">Developer options enabled</string>
     <string name="accessibility_service">Accessibility service enabled</string>
-    <string name="detected_issues_header">Detected issues:</string>
-    <string name="reset_detection">Reset results</string>
     <string name="monitoring">Monitoring…</string>
     <string name="detect_again">Detect again</string>
     <string name="require_permission">Require permission to work</string>
-    <string name="no_detection_items_yet">No detection items yet</string>
     <string name="more">More</string>
     <string name="open_source">Open Source</string>
     <string name="info">Info</string>
     <string name="description_first">This software is a security tool dedicated to screen behavior detection. It enables real-time awareness of potential screen capture activities—including screenshots, screen recording, and screen casting—while also monitoring risk conditions within the device environment.</string>
     <string name="description_second">Completely free! Resale is strictly prohibited! Not for illegal or commercial use.</string>
-    <string name="status_abnormal">Abnormal</string>
     <string name="status_normal">Normal</string>
     <!--AgreementPage-->
     <string name="user_agreement">User Agreement</string>
-    <string name="solve_equation">Please solve the following quadratic equation and enter any one root (rounded to one decimal place):</string>
-    <string name="x_value">x Value</string>
     <string name="agreed">[Agreed]</string>
     <string name="close">Close</string>
     <string name="agree_and_continue">Agree</string>

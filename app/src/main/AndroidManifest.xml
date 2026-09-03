@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
         tools:ignore="PhotoAndVideoPolicy" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <!-- 用量统计(需用户在设置中授予"使用情况访问权")，用于查询当前前台应用 -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <queries>
         <package android:name="fake.screenshot" />
     </queries>

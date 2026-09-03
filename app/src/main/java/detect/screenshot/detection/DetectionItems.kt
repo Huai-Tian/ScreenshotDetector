@@ -77,7 +77,21 @@ enum class DetectionItems(
     ),
     MULTI_WINDOW(R.string.multi_window),
     PICTURE_IN_PICTURE(R.string.picture_in_picture),
-    FLOATING_WINDOW(R.string.floating_window),
+    FLOATING_WINDOW(
+        R.string.floating_window,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
+    FREEFORM_WINDOW(
+        R.string.freeform_window,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
+    FOCUS_LOSS(
+        R.string.focus_taken,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
 
     // ---------- ScreenshotFaker ----------
     SCREENSHOT_FAKER(

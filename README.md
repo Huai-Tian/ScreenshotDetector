@@ -41,8 +41,16 @@ It operates at the application layer, detecting screen capture events via system
   Assists in detecting casting and mirroring via `MediaRouter`
 
 - **Suspicious behavior detection**  
-  Detects screen switching, picture‑in‑picture, small‑window mode, and other suspicious operations
-  Detect floating windows using `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`
+  Detects screen switching, split-screen, picture‑in‑picture, and other suspicious operations
+
+- **Floating window detection**  
+  Detects floating windows using touch‑obscured signals (`FLAG_WINDOW_IS_OBSCURED` / `FLAG_WINDOW_IS_PARTIALLY_OBSCURED`), plus "focus taken while self is still the foreground app" (`UsageStatsManager`)
+
+- **Freeform window detection**  
+  Detects freeform windows running on specially named virtual displays via reflection
+
+- **Focus loss detection**  
+  Detects window focus being persistently taken by other windows while the app is in the foreground
 
 - **ScreenshotFaker feature detection**  
   Detects whether ScreenshotFaker‑related traces exist on the device
@@ -56,21 +64,30 @@ It operates at the application layer, detecting screen capture events via system
 ### Technical Comparison with ScreenshotFaker
 
 - **ScreenshotFaker**:
-    - LSPosed mode: Operates at the **system framework layer**, hooking system APIs to intercept and forge screenshot events
-    - Shizuku/Root mode: Operates at the **privileged layer**, leveraging system API calls to replace screenshot content and bypass detection
+  - LSPosed mode: Operates at the **system framework layer**, hooking system APIs to intercept and forge screenshot events
+  - Shizuku/Root mode: Operates at the **privileged layer**, leveraging system API calls to replace screenshot content and bypass detection
 
 - **ScreenshotDetector**:
-    - Operates at the **application layer**, detecting screenshot status via public system APIs. It has limited detection capability against system framework-layer behaviors (e.g., LSPosed) and some detection capability against privileged-layer behaviors (e.g., Shizuku/Root).
+  - Operates at the **application layer**, detecting screenshot status via public system APIs. It has limited detection capability against system framework-layer behaviors (e.g., LSPosed) and some detection capability against privileged-layer behaviors (e.g., Shizuku/Root).
 
 ### Detection Principles
 
 This tool is implemented based on Android public system APIs:
 
-- `ScreenCaptureCallback`: Detects key‑press screenshots (Android 10+)
+- `ScreenCaptureCallback`: Detects key‑press screenshots (Android 14+)
 - `ScreenRecordingCallback`: Detects screen recording activity (Android 15+)
-- `DisplayManager`: Detects screen mirroring/casting status
+- `DisplayManager`: Detects screen mirroring/casting status and virtual displays
 - `MediaProjection`: Detects screen projection service status
-- `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` (Android 12+): Detect the presence of floating windows
+- `MediaRouter`: Detects external display routes
+- `ContentObserver` + `MediaStore`: Detects newly added screenshots in the media library
+- `FileObserver`: Detects file creation/move in the screenshots directory
+- `Settings.Global` / `AccessibilityManager`: Detects ADB, developer options, and accessibility services
+- `FLAG_WINDOW_IS_OBSCURED` and `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` (Android 12+): Detects touch‑obscured signals of floating windows
+- `UsageStatsManager` (requires "Usage access" permission): Queries the foreground app to determine whether focus was taken by a floating window rather than an app switch
+
+Based on Android hidden system APIs (invoked via reflection after exempting non‑SDK interface restrictions with [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass)):
+- `Display.getDisplayInfo()`: Reads virtual display names to detect freeform windows running on specially named virtual displays
+- `WindowManagerGlobal.mViews`: Enumerates this process's window list to rule out false positives caused by the app's own dialogs holding focus
 
 ---
 

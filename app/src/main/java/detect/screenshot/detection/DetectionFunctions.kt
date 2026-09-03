@@ -62,6 +62,12 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var screenshotFakerCheckJob: Job? = null
     private var behaviorPollingJob: Job? = null
 
+    // ========== 窗口反射检测(自由小窗/系统级悬浮窗) ==========
+    /** 引用计数：FREEFORM_WINDOW 与 SYSTEM_FLOATING_WINDOW 共用同一轮询 */
+    private var windowDetectionRefCount = 0
+    private var windowPollingJob: Job? = null
+    private var windowReflectionDetector: WindowReflectionDetector? = null
+
     // ========== 触摸遮挡状态(悬浮窗检测信号) ==========
     private var isTouchObscured = false
     private var isInBackground = false
@@ -84,11 +90,17 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- 拦截触摸事件，检测悬浮窗遮挡 ----------
     fun dispatchTouchEvent(ev: MotionEvent) {
         var obscured = (ev.flags and MotionEvent.FLAG_WINDOW_IS_OBSCURED) != 0
+        var partially = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            obscured = obscured or ((ev.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0)
+            partially = (ev.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0
+            obscured = obscured or partially
         }
         if (obscured != isTouchObscured) {
             isTouchObscured = obscured
+            Auxiliary.log(
+                "WindowTouch: obscured state changed to $obscured " +
+                        "(action=0x${Integer.toHexString(ev.actionMasked)} partially=$partially)"
+            )
             if (obscured && isBehaviorDetectionActive) {
                 behaviorIssueCallback?.invoke(DetectionItems.FLOATING_WINDOW)
             }
@@ -452,6 +464,49 @@ class DetectionFunctions(private val activity: MainActivity) {
         screenshotFakerCheckJob = null
     }
 
+    // ---------- 窗口反射检测(自由小窗/系统级悬浮窗，共用同一轮询) ----------
+    /**
+     * 启动窗口检测：每秒轮询一次 [WindowReflectionDetector]。
+     * 检测器基于反射信号(焦点丢失/虚拟显示器/环境探测)，不使用无障碍服务；
+     * 触摸遮挡信号由 [dispatchTouchEvent] 补充。
+     */
+    fun startWindowDetection(onIssue: (DetectionItems) -> Unit) {
+        windowDetectionRefCount++
+        Auxiliary.log(
+            "WindowDetection: start requested " +
+                    "(refCount=$windowDetectionRefCount, polling=${windowPollingJob != null})"
+        )
+        if (windowDetectionRefCount > 1 || windowPollingJob != null) {
+            return
+        }
+        val detector = WindowReflectionDetector(activity)
+        windowReflectionDetector = detector
+        windowPollingJob = CoroutineScope(Dispatchers.Main).launch {
+            while (isActive) {
+                detector.check(onIssue)
+                delay(WindowReflectionDetector.POLL_INTERVAL_MS.milliseconds)
+            }
+        }
+    }
+
+    fun stopWindowDetection() {
+        if (windowDetectionRefCount > 0) windowDetectionRefCount--
+        if (windowDetectionRefCount > 0) return
+        teardownWindowDetection()
+    }
+
+    private fun teardownWindowDetection() {
+        windowPollingJob?.cancel()
+        windowPollingJob = null
+        windowReflectionDetector = null
+        Auxiliary.log("WindowDetection: stopped, polling cancelled")
+    }
+
+    /** 由 Activity 的 onWindowFocusChanged 转发(窗口焦点探测的精确信号) */
+    fun onWindowFocusChanged(hasFocus: Boolean) {
+        windowReflectionDetector?.onWindowFocusChanged(hasFocus)
+    }
+
     /** 由 Activity 的 onPause/onResume 转发 */
     fun onActivityPaused() {
         isInBackground = true
@@ -474,5 +529,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopBehaviorDetection()
         stopEnvironmentDetection()
         stopScreenshotFakerDetection()
+        windowDetectionRefCount = 0
+        teardownWindowDetection()
     }
 }

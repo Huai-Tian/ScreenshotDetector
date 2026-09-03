@@ -89,10 +89,18 @@ object Auxiliary {
         }
         val accessibilityManager =
             context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        if (accessibilityManager.getEnabledAccessibilityServiceList(
-                AccessibilityServiceInfo.FEEDBACK_ALL_MASK
-            ).isNotEmpty()
-        ) {
+        val enabledServices = accessibilityManager.getEnabledAccessibilityServiceList(
+            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+        )
+        if (enabledServices.isNotEmpty()) {
+            log(
+                "environmentIssues: accessibility services enabled=" +
+                        enabledServices.joinToString {
+                            "${it.resolveInfo?.serviceInfo?.packageName}/${it.resolveInfo?.serviceInfo?.name}"
+                        }
+            )
+        }
+        if (enabledServices.isNotEmpty()) {
             issues += DetectionItems.ACCESSIBILITY_SERVICE
         }
         return issues

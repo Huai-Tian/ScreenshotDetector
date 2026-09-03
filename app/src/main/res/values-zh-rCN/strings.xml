@@ -17,6 +17,7 @@
     <string name="freeform_window">存在自由小窗</string>
     <string name="freeform_window_detail">小窗：%1$s</string>
     <string name="focus_taken">窗口焦点被抢占</string>
+    <string name="window_not_fully_presented">窗口显示不完整</string>
     <string name="adb_enabled">ADB 调试已开启</string>
     <string name="developer_options">开发者选项已开启</string>
     <string name="accessibility_service">无障碍服务已开启</string>

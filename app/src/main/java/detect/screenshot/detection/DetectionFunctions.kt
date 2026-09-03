@@ -69,12 +69,13 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var windowPollingJob: Job? = null
     private var windowReflectionDetector: WindowReflectionDetector? = null
 
-    // ========== 可信呈现监听(API 35+，悬浮窗遮挡的服务端信号) ==========
+    // ========== 可信呈现监听(API 35+，窗口显示完整性信号) ==========
     /**
      * TrustedPresentation 回调。系统(SurfaceFlinger)持续计算本应用窗口
-     * 实际被渲染的像素比例(含被上层窗口遮挡的影响)，跌出阈值即回调 false：
-     * 任何可见悬浮窗盖上来都触发，无需用户触摸——与 FLAG_WINDOW_IS_OBSCURED
-     * (必须恰好触摸到被遮挡区)互补。状态翻转为 false 即报 FLOATING_WINDOW。
+     * 实际被渲染的像素比例，跌出阈值即回调 false：外部悬浮窗/系统浮层
+     * 遮挡、手势导航离场动画、半透明化等任何使窗口呈现不完整的因素都
+     * 触发。按信号本体语义上报 WINDOW_NOT_FULLY_PRESENTED，不归因为悬浮窗
+     * (悬浮窗检测由触摸遮挡与焦点归因两路独立信号承担)。
      */
     private var trustedPresentationConsumer: Consumer<Boolean>? = null
 
@@ -611,22 +612,22 @@ class DetectionFunctions(private val activity: MainActivity) {
      * 可信呈现监听(API 35+，见字段注释)。窗口需先完成 attach(有 windowToken)
      * 才能注册，故 post 到视图就绪后执行。
      *
-     * 自家的下拉菜单/Dialog 也是独立窗口，盖住主窗口同样使信号翻转——
-     * 回调只有 boolean、不含遮挡者身份，故翻转时若本进程存在主窗口
-     * 之外的弹层(见 hasOwnOverlayingWindow)则判定为自遮挡，不上报。
+     * 排除两类非"显示不完整"的情形：后台离场(isInBackground)、自家弹层
+     * 遮挡(下拉菜单/Dialog，见 hasOwnOverlayingWindow——应用自身 UI 的
+     * 正常行为)；其余翻转一律按本体语义上报。
      */
     private fun startTrustedPresentationDetection(onIssue: (DetectionItems, String?) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
         stopTrustedPresentationDetection()
         val wm = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         // 阈值：99% 像素可见、不透明、持续 250ms 才算"可信呈现"——
-        // 悬浮窗盖上来/移开的状态迁移都会回调，取 false 边沿上报
+        // 遮挡/移开的状态迁移都会回调，取 false 边沿上报
         val thresholds = android.window.TrustedPresentationThresholds(1.0f, 0.99f, 250)
         val consumer = Consumer<Boolean> { trusted ->
             if (!trusted && !isInBackground &&
                 windowReflectionDetector?.hasOwnOverlayingWindow() != true
             ) {
-                onIssue(DetectionItems.FLOATING_WINDOW, null)
+                onIssue(DetectionItems.WINDOW_NOT_FULLY_PRESENTED, null)
             }
         }
         activity.window.decorView.post {

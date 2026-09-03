@@ -98,6 +98,11 @@ enum class DetectionItems(
         start = { onIssue -> startWindowDetection(onIssue) },
         stop = { stopWindowDetection() }
     ),
+    WINDOW_NOT_FULLY_PRESENTED(
+        R.string.window_not_fully_presented,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
 
     // ---------- ScreenshotFaker ----------
     SCREENSHOT_FAKER(

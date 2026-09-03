@@ -18,6 +18,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
@@ -68,9 +69,28 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var windowPollingJob: Job? = null
     private var windowReflectionDetector: WindowReflectionDetector? = null
 
+    // ========== 可信呈现监听(API 35+，悬浮窗遮挡的服务端信号) ==========
+    /**
+     * TrustedPresentation 回调。系统(SurfaceFlinger)持续计算本应用窗口
+     * 实际被渲染的像素比例(含被上层窗口遮挡的影响)，跌出阈值即回调 false：
+     * 任何可见悬浮窗盖上来都触发，无需用户触摸——与 FLAG_WINDOW_IS_OBSCURED
+     * (必须恰好触摸到被遮挡区)互补。状态翻转为 false 即报 FLOATING_WINDOW。
+     */
+    private var trustedPresentationConsumer: Consumer<Boolean>? = null
+
     // ========== 触摸遮挡状态(悬浮窗检测信号) ==========
     private var isTouchObscured = false
     private var isInBackground = false
+
+    // ========== 外接显示器监听(桌面模式信号) ==========
+    /**
+     * DisplayManager.DisplayListener.onDisplayAdded：外接显示器接入是
+     * 桌面窗口模式(Android 16 QPR3 GA)/投屏外显的确定性前置事件。
+     * 检出为独立检测项 EXTERNAL_DISPLAY，与投屏检测(投出)语义互补
+     * (此为"接入进来")。注册时先查既有显示器(冷启动时已接入也能检出)。
+     * (SDK 37.1 已移除 ACTION_DISPLAY_ADDED 广播常量，改用 DisplayListener)
+     */
+    private var externalDisplayListener: DisplayManager.DisplayListener? = null
 
     // ---------- 环境检测/行为检测的上报回调(签名统一为携带详情) ----------
     private fun envAdapter(onIssue: (DetectionItems, String?) -> Unit): (DetectionItems) -> Unit =
@@ -136,14 +156,28 @@ class DetectionFunctions(private val activity: MainActivity) {
         if (Auxiliary.ScreenRecordingDetectionAvailable) {
             stopScreenRecordingDetection()
             val callback = Consumer<Int> { state ->
+                // SCREEN_RECORDING_STATE_VISIBLE = 1，NOT_VISIBLE = 0
+                Auxiliary.log("ScreenRecording: callback state=$state")
                 if (state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
                     onDetected()
                 }
             }
             screenRecordingCallback = callback
             val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val initState = windowManager.addScreenRecordingCallback(activity.mainExecutor, callback)
-            callback.accept(initState)
+            try {
+                // 注册返回当前状态(API 契约：初始状态不会自动回调，需自行消费)，
+                // 覆盖"录屏进行中启动检测器"的场景
+                val initState = windowManager.addScreenRecordingCallback(
+                    activity.mainExecutor, callback
+                )
+                Auxiliary.log("ScreenRecording: registered, initState=$initState")
+                callback.accept(initState)
+            } catch (e: Exception) {
+                // 个别 ROM 可能拦截/抛错，记录以判断注册是否真正成功
+                Auxiliary.log("ScreenRecording: register failed: $e")
+            }
+        } else {
+            Auxiliary.log("ScreenRecording: unavailable, sdk=${Build.VERSION.SDK_INT}")
         }
     }
 
@@ -153,6 +187,7 @@ class DetectionFunctions(private val activity: MainActivity) {
                 try {
                     val windowManager = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                     windowManager.removeScreenRecordingCallback(it)
+                    Auxiliary.log("ScreenRecording: unregistered")
                 } catch (_: Exception) { /* ignore */
                 }
             }
@@ -167,6 +202,8 @@ class DetectionFunctions(private val activity: MainActivity) {
     ): DisplayManager.DisplayListener {
         return object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) {
+                // 对照日志：三方录屏/投屏会创建虚拟显示器，标记时间点
+                Auxiliary.log("DisplayListener: onDisplayAdded displayId=$displayId")
                 var display = dm.getDisplay(displayId)
                 if (display == null) {
                     display = dm.displays.find { it.displayId == displayId }
@@ -426,6 +463,21 @@ class DetectionFunctions(private val activity: MainActivity) {
         if (activity.isInMultiWindowMode) {
             callback(DetectionItems.MULTI_WINDOW)
         }
+        // 窗口化形态探测：与 isInMultiWindowMode 是两个独立标志、不同代码
+        // 路径——部分 ROM(实测 ColorOS 16)的小窗不置 multiWindow 标志但
+        // windowingMode 照常返回 FREEFORM/MULTI_WINDOW，补上该盲区。
+        // Configuration.windowConfiguration 为 API 30 公开字段，但 SDK 37.1
+        // 起该类移出公开 stub，改用反射读取(运行时类恒存在)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            when (currentWindowingMode()) {
+                WINDOWING_MODE_FREEFORM,
+                WINDOWING_MODE_MULTI_WINDOW -> {
+                    callback(DetectionItems.MULTI_WINDOW)
+                }
+                // PINNED 即画中画，isInPictureInPictureMode 已覆盖
+                else -> Unit
+            }
+        }
         if (activity.isInPictureInPictureMode) {
             callback(DetectionItems.PICTURE_IN_PICTURE)
         }
@@ -438,6 +490,22 @@ class DetectionFunctions(private val activity: MainActivity) {
     fun onMultiWindowModeChanged() {
         checkBehaviorState()
     }
+
+    // ---------- 窗口化形态反射读取(见 checkBehaviorState 内注释) ----------
+
+    private companion object {
+        /** android.app.WindowConfiguration.WINDOWING_MODE_* 常量值(API 30 公开，SDK 37 起移出公开 stub) */
+        private const val WINDOWING_MODE_FREEFORM = 5
+        private const val WINDOWING_MODE_MULTI_WINDOW = 6
+    }
+
+    /** 反射读取当前窗口化形态，失败返回 0(FULLSCREEN，即不触发任何上报) */
+    private fun currentWindowingMode(): Int = runCatching {
+        val configField =
+            android.content.res.Configuration::class.java.getField("windowConfiguration")
+        val windowConfig = configField.get(activity.resources.configuration)
+        windowConfig.javaClass.getMethod("getWindowingMode").invoke(windowConfig) as Int
+    }.getOrDefault(0)
 
     fun onPictureInPictureModeChanged() {
         checkBehaviorState()
@@ -464,6 +532,44 @@ class DetectionFunctions(private val activity: MainActivity) {
         screenshotFakerCheckJob = null
     }
 
+    // ---------- 外接显示器检测(桌面模式信号) ----------
+
+    /**
+     * 注册 DisplayListener；DisplayManager.getDisplays 显示器数量 > 1
+     * (内建屏之外)时立即上报——覆盖冷启动时已接入的场景。
+     */
+    fun startExternalDisplayDetection(onIssue: (DetectionItems, String?) -> Unit) {
+        stopExternalDisplayDetection()
+        val dm = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        if (dm.displays.size > 1) {
+            onIssue(DetectionItems.EXTERNAL_DISPLAY, null)
+        }
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {
+                // 内建屏的 displayId 通常为 0；防御性再核一次数量，
+                // 排除个别 ROM 将内建屏移除/重加的情况
+                if (dm.displays.size > 1) {
+                    onIssue(DetectionItems.EXTERNAL_DISPLAY, null)
+                }
+            }
+
+            override fun onDisplayChanged(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+        }
+        dm.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        externalDisplayListener = listener
+    }
+
+    fun stopExternalDisplayDetection() {
+        externalDisplayListener?.let {
+            runCatching {
+                (activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                    .unregisterDisplayListener(it)
+            }
+        }
+        externalDisplayListener = null
+    }
+
     // ---------- 窗口反射检测(自由小窗/系统级悬浮窗，共用同一轮询) ----------
     /**
      * 启动窗口检测：按轮询间隔轮询 [WindowReflectionDetector]。
@@ -483,6 +589,7 @@ class DetectionFunctions(private val activity: MainActivity) {
                 delay(WindowReflectionDetector.POLL_INTERVAL_MS.milliseconds)
             }
         }
+        startTrustedPresentationDetection(onIssue)
     }
 
     fun stopWindowDetection() {
@@ -495,11 +602,57 @@ class DetectionFunctions(private val activity: MainActivity) {
         windowPollingJob?.cancel()
         windowPollingJob = null
         windowReflectionDetector = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            stopTrustedPresentationDetection()
+        }
+    }
+
+    /**
+     * 可信呈现监听(API 35+，见字段注释)。窗口需先完成 attach(有 windowToken)
+     * 才能注册，故 post 到视图就绪后执行；自家的悬浮窗/对话框遮挡窗口时
+     * 此信号同置 false——由调用方上下文保证(检测器场景无自家浮层)可忽略。
+     */
+    private fun startTrustedPresentationDetection(onIssue: (DetectionItems, String?) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
+        stopTrustedPresentationDetection()
+        val wm = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        // 阈值：99% 像素可见、不透明、持续 250ms 才算"可信呈现"——
+        // 悬浮窗盖上来/移开的状态迁移都会回调，取 false 边沿上报
+        val thresholds = android.window.TrustedPresentationThresholds(1.0f, 0.99f, 250)
+        val consumer = Consumer<Boolean> { trusted ->
+            if (!trusted && !isInBackground) {
+                onIssue(DetectionItems.FLOATING_WINDOW, null)
+            }
+        }
+        activity.window.decorView.post {
+            val token = activity.window.decorView.windowToken ?: return@post
+            runCatching {
+                wm.registerTrustedPresentationListener(
+                    token, thresholds, activity.mainExecutor, consumer
+                )
+                trustedPresentationConsumer = consumer
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    private fun stopTrustedPresentationDetection() {
+        val consumer = trustedPresentationConsumer ?: return
+        trustedPresentationConsumer = null
+        val wm = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        runCatching {
+            wm.unregisterTrustedPresentationListener(consumer)
+        }
     }
 
     /** 由 Activity 的 onWindowFocusChanged 转发(窗口焦点探测的精确信号) */
     fun onWindowFocusChanged(hasFocus: Boolean) {
         windowReflectionDetector?.onWindowFocusChanged(hasFocus)
+    }
+
+    /** 由 Activity 的 onTopResumedActivityChanged 转发(事件化焦点信号) */
+    fun onTopResumedActivityChanged(isTopResumed: Boolean) {
+        windowReflectionDetector?.onTopResumedActivityChanged(isTopResumed)
     }
 
     /** 由 Activity 的 onPause/onResume 转发 */
@@ -524,6 +677,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopBehaviorDetection()
         stopEnvironmentDetection()
         stopScreenshotFakerDetection()
+        stopExternalDisplayDetection()
         windowDetectionRefCount = 0
         teardownWindowDetection()
     }

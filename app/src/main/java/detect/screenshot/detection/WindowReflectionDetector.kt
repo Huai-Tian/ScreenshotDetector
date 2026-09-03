@@ -2,6 +2,7 @@ package detect.screenshot.detection
 
 import android.annotation.SuppressLint
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.PowerManager
@@ -43,6 +44,15 @@ class WindowReflectionDetector(private val activity: MainActivity) {
 
         /** 从未获得过焦点时的更高阈值(约3秒)，排除启动瞬态的同时捕捉持续抢占 */
         const val FOCUS_LOSS_THRESHOLD_NEVER = 15
+
+        /** 归因回看窗口(事件流与聚合值同窗口)，新鲜度过滤保证长窗口安全 */
+        private const val ATTRIBUTION_LOOKBACK_MS = 60_000L
+
+        /**
+         * SystemUI 包名(各 ROM 通用稳定)：其瞬态 UI(侧边栏手势/最近任务面板等)
+         * 不作为小窗归因目标——事件流里这些瞬态可能晚于小窗内应用被记录
+         */
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 
     private var unfocusedPolls = 0
@@ -62,6 +72,10 @@ class WindowReflectionDetector(private val activity: MainActivity) {
 
     init {
         applyHiddenApiExemption()
+        // 新鲜度基线兜底：从未获得焦点时 lastFocusHeldMs 为 0 会让任何近期
+        // 使用过的其他应用都通过新鲜度过滤(如冷启动前 launcher 的使用记录
+        // 会被误归因为小窗)，以检测器创建时刻为初始基线
+        lastFocusHeldMs = System.currentTimeMillis()
     }
 
     /**
@@ -87,6 +101,20 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         }
     }
 
+    /**
+     * 由 Activity.onTopResumedActivityChanged 转发(API 29+ 事件信号)：
+     * top resumed 即本 Activity 是全局顶层，等价持有窗口焦点。
+     * 与轮询互补——事件即时到达无轮询延迟；轮询兜底事件未覆盖的
+     * 边界(如 top resumed 与窗口焦点短暂不一致的过渡帧)。
+     */
+    fun onTopResumedActivityChanged(isTopResumed: Boolean) {
+        if (isTopResumed) {
+            focusEverGained = true
+            unfocusedPolls = 0
+            lastFocusHeldMs = System.currentTimeMillis()
+        }
+    }
+
     /** 轮询入口，由 DetectionFunctions 按轮询间隔调用 */
     fun check(onIssue: (DetectionItems, String?) -> Unit) {
         checkFocusProbe(onIssue)
@@ -103,20 +131,24 @@ class WindowReflectionDetector(private val activity: MainActivity) {
      * "曾获得过焦点"开始；若从未获得过焦点(悬浮窗在启动前就抢走焦点)，
      * 采用更高的阈值以排除瞬态。
      *
-     * 超过阈值后按 topApp(用量统计口径的顶层应用)二路归因：
-     * - topApp == 自己：焦点被抢但顶层应用仍是自己——抢焦点的是悬浮窗/
-     *   系统浮层(状态栏面板、侧边栏展开等)而非应用切换 → FLOATING_WINDOW；
-     * - topApp == 其他应用(且新鲜度过滤通过)：本应用仍 RESUMED 而焦点在
-     *   他人——正常应用切换必先 onPause 使本过滤失效，能到达此处说明对方
-     *   以窗口形式覆盖本应用(ROM 小窗/自由窗口)，ColorOS 等既不设
-     *   multiWindow 标志也不建特征命名虚拟屏，这是其唯一可靠的应用层信号
-     *   → FREEFORM_WINDOW，详情携带顶层应用包名；
-     * - topApp 未知(未授使用情况访问权)：无法归因，仅 FOCUS_LOSS。
+     * 超过阈值后按用量统计归因(小窗优先，悬浮窗兜底)：
+     * - 存在"新鲜的其他应用"(最近前台化/使用时刻晚于本应用最后一次
+     *   持有焦点，即失焦之后才被使用)：本应用仍 RESUMED 而焦点在他人
+     *   ——正常应用切换必先 onPause 使本过滤失效，能到达此处说明对方
+     *   以窗口形式覆盖本应用(ROM 小窗/自由窗口) → FREEFORM_WINDOW，
+     *   详情携带包名。归因取"最大的新鲜其他应用"而非全量最大值：
+     *   新版窗口语义下开小窗会使底层应用经历生命周期抖动，本应用自己
+     *   的记录可能被刷新到小窗应用之后；SystemUI 的瞬态 UI(侧边栏手势
+     *   等)亦排除。数据源为事件流+聚合值双源合并(见各查询方法文档)；
+     * - 无新鲜其他应用但用量统计的顶层是自己：焦点被抢但顶层仍是自己
+     *   ——抢焦点的是悬浮窗/系统浮层(状态栏面板、侧边栏展开等)而非应用
+     *   切换 → FLOATING_WINDOW；
+     * - 用量统计不可用(未授使用情况访问权)：无法归因，仅 FOCUS_LOSS。
      *
-     * 小窗归因附新鲜度过滤(见 [lastFocusHeldMs])：topApp 的 lastTimeUsed
-     * 必须晚于本应用最后一次持有焦点的时刻，否则视为陈旧数据不归因——
-     * 关闭小窗后用量统计的 topApp 仍停留在小窗应用，若不加过滤，此后任何
-     * 焦点丢失(如下拉状态栏)都会把旧包名再次误报为小窗。
+     * 新鲜度过滤(见 [lastFocusHeldMs])同时排除两类陈旧数据：
+     * - 关闭小窗后用量统计的 topApp 仍停留在小窗应用，此后任何焦点丢失
+     *   (如下拉状态栏)都会把旧包名再次误报为小窗；
+     * - 检测器创建前(从未获得焦点时)其他应用的历史使用记录。
      */
     private fun checkFocusProbe(onIssue: (DetectionItems, String?) -> Unit) {
         val interactive =
@@ -143,21 +175,24 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         if (unfocusedPolls >= threshold) {
             // 独立信号：焦点被抢占
             onIssue(DetectionItems.FOCUS_LOSS, null)
-            // 按 topApp 归因(见方法文档)
-            val topApp = queryTopApp()
+            // 归因(见方法文档)：小窗优先(新鲜的其他应用)，悬浮窗兜底
+            val stats = queryForegroundByEvents() + queryUsageStats()
+            val freshOther = stats
+                .filter { it.first != activity.packageName && it.first != SYSTEM_UI_PACKAGE }
+                .filter { it.second > lastFocusHeldMs }
+                .maxByOrNull { it.second }
             when {
-                topApp?.first == activity.packageName -> {
+                freshOther != null -> {
+                    onIssue(
+                        DetectionItems.FREEFORM_WINDOW,
+                        activity.getString(R.string.freeform_window_detail, freshOther.first)
+                    )
+                }
+
+                stats.maxByOrNull { it.second }?.first == activity.packageName -> {
                     // 焦点被抢但用量统计的顶层应用仍是自己——抢焦点的是
                     // 悬浮窗/系统浮层(状态栏面板、侧边栏展开等)而非应用切换
                     onIssue(DetectionItems.FLOATING_WINDOW, null)
-                }
-
-                topApp != null && topApp.second > lastFocusHeldMs -> {
-                    // 新鲜度过滤排除陈旧 topApp(关小窗后旧包名残留)
-                    onIssue(
-                        DetectionItems.FREEFORM_WINDOW,
-                        activity.getString(R.string.freeform_window_detail, topApp.first)
-                    )
                 }
 
                 else -> Unit
@@ -168,29 +203,66 @@ class WindowReflectionDetector(private val activity: MainActivity) {
     // ---------- 前台应用查询(顶层是否是自己) ----------
 
     /**
-     * 查询当前前台应用(用量统计口径下最近使用的包及其最后使用时刻)，
-     * 用于小窗归因及其新鲜度过滤。
-     * 直接反射 IActivityTaskManager.getTasks() 会被服务端 REAL_GET_TASKS
-     * 签名权限拦截(HiddenApiBypass 只绕客户端隐藏 API 限制，绕不过 Binder
-     * 权限检查)，故采用 UsageStatsManager 公开 API。
+     * 归因数据源 1(主)：UsageEvents 事件流。Activity 前台化
+     * (MOVE_TO_FOREGROUND)时立即写入，是应用锁类软件获取前台应用的
+     * 标准方法。聚合值(queryUsageStats)是懒提交的——部分 ROM(实测
+     * ColorOS 16)对小窗内应用根本不更新聚合，但事件流照常记录，
+     * 双源互补提高跨 ROM 可靠性。
      *
-     * 需要用户在设置中授予"使用情况访问权"(PACKAGE_USAGE_STATS)；
-     * 未授予时返回 null(小窗的该信号不可用，焦点检测不受影响)。
+     * 返回窗口期内各包最近一次前台化时刻。
      */
-    private fun queryTopApp(): Pair<String, Long>? {
+    private fun queryForegroundByEvents(): List<Pair<String, Long>> {
         if (!hasUsageAccess()) {
-            return null
+            return emptyList()
         }
         return try {
             val usm =
                 activity.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val now = System.currentTimeMillis()
-            usm.queryUsageStats(UsageStatsManager.INTERVAL_BEST, now - 15000, now)
-                .filter { it.lastTimeUsed > 0 }
-                .maxByOrNull { it.lastTimeUsed }
-                ?.let { it.packageName to it.lastTimeUsed }
+            val events = usm.queryEvents(now - ATTRIBUTION_LOOKBACK_MS, now)
+            val latest = HashMap<String, Long>()
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND &&
+                    event.timeStamp > (latest[event.packageName] ?: 0L)
+                ) {
+                    latest[event.packageName] = event.timeStamp
+                }
+            }
+            latest.map { it.key to it.value }
         } catch (_: Exception) {
-            null
+            emptyList()
+        }
+    }
+
+    /**
+     * 归因数据源 2(兜底)：UsageStats 聚合值，各应用最后使用时刻。
+     * 与事件流合并使用(取新鲜的其他应用，见 [checkFocusProbe])。
+     * 直接反射 IActivityTaskManager.getTasks() 会被服务端 REAL_GET_TASKS
+     * 签名权限拦截(HiddenApiBypass 只绕客户端隐藏 API 限制，绕不过 Binder
+     * 权限检查)，故采用 UsageStatsManager 公开 API。
+     *
+     * 需要用户在设置中授予"使用情况访问权"(PACKAGE_USAGE_STATS)；
+     * 未授予时返回空列表(小窗的该信号不可用，焦点检测不受影响)。
+     */
+    private fun queryUsageStats(): List<Pair<String, Long>> {
+        if (!hasUsageAccess()) {
+            return emptyList()
+        }
+        return try {
+            val usm =
+                activity.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_BEST,
+                now - ATTRIBUTION_LOOKBACK_MS,
+                now
+            )
+                .filter { it.lastTimeUsed > 0 }
+                .map { it.packageName to it.lastTimeUsed }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 

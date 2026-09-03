@@ -65,6 +65,12 @@ class MainActivity : ComponentActivity() {
         detectionFunctions.onWindowFocusChanged(hasFocus)
     }
 
+    // ========== 顶层 Resumed 变化转发(API 29+ 事件化焦点信号，与轮询互补) ==========
+    override fun onTopResumedActivityChanged(isTopResumed: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumed)
+        detectionFunctions.onTopResumedActivityChanged(isTopResumed)
+    }
+
     override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
         detectionFunctions.onMultiWindowModeChanged()

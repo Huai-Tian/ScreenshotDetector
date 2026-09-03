@@ -38,6 +38,11 @@ enum class DetectionItems(
         start = { onIssue -> startMirroringDetection { onIssue(SCREEN_MIRRORING, null) } },
         stop = { stopMirroringDetection() }
     ),
+    EXTERNAL_DISPLAY(
+        R.string.external_display,
+        start = { onIssue -> startExternalDisplayDetection { item, _ -> onIssue(item, null) } },
+        stop = { stopExternalDisplayDetection() }
+    ),
     MEDIA_PROJECTION(
         R.string.MediaProjection_state,
         start = { onIssue -> startMediaProjectionDetection { onIssue(MEDIA_PROJECTION, null) } },

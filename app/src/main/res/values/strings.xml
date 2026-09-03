@@ -4,6 +4,7 @@
     <string name="key_press_screenshot">Key press screenshot</string>
     <string name="screen_recording">Screen recording</string>
     <string name="screen_mirroring">Screen mirroring</string>
+    <string name="external_display">External display connected</string>
     <string name="media_library_changed">Media library changed</string>
     <string name="gallery_file_changed">Gallery file changed</string>
     <string name="MediaProjection_state">MediaProjection state</string>

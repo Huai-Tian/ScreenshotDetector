@@ -44,7 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,7 +70,7 @@ private val IssueCardColor = Color(0xFFE0E0E0)
 @Composable
 fun HomeCompose(
     activity: MainActivity,
-    issues: SnapshotStateList<DetectionItems>
+    issues: SnapshotStateMap<DetectionItems, String?>
 ) {
     val context = LocalContext.current
 
@@ -91,7 +91,9 @@ fun HomeCompose(
         stopAllDetections()
         issues.clear()
         DetectionItems.entries.forEach { entry ->
-            entry.start(activity.detectionFunctions) { if (it !in issues) issues.add(it) }
+            entry.start(activity.detectionFunctions) { item, detail ->
+                issues[item] = detail
+            }
         }
     }
 
@@ -185,8 +187,8 @@ fun HomeCompose(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        issues.forEach { issue ->
-                            IssueCard(issue)
+                        issues.forEach { (issue, detail) ->
+                            IssueCard(issue, detail)
                         }
                     }
                 }
@@ -283,9 +285,9 @@ fun HomeCompose(
     }
 }
 
-// 异常结果卡片：白色背景 + 灰色描边
+// 异常结果卡片：白色背景 + 灰色描边，detail 非空时附详情行(如小窗包名)
 @Composable
-private fun IssueCard(issue: DetectionItems) {
+private fun IssueCard(issue: DetectionItems, detail: String?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -293,16 +295,28 @@ private fun IssueCard(issue: DetectionItems) {
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(2.dp, IssueCardColor)
     ) {
-        Text(
-            text = stringResource(issue.labelRes),
-            fontSize = 20.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-            color = Color(0xFF333333),
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 22.dp)
-        )
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            Text(
+                text = stringResource(issue.labelRes),
+                fontSize = 20.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF333333)
+            )
+            if (!detail.isNullOrBlank()) {
+                Text(
+                    text = detail,
+                    fontSize = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Color(0xFF757575),
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
     }
 }
 

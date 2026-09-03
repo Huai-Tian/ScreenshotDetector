@@ -14,6 +14,7 @@
     <string name="picture_in_picture">画中画</string>
     <string name="floating_window">存在悬浮窗</string>
     <string name="freeform_window">存在自由小窗</string>
+    <string name="freeform_window_detail">小窗：%1$s</string>
     <string name="focus_taken">窗口焦点被抢占</string>
     <string name="adb_enabled">ADB 调试已开启</string>
     <string name="developer_options">开发者选项已开启</string>

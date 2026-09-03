@@ -8,7 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
@@ -24,8 +24,9 @@ class MainActivity : ComponentActivity() {
     // ========== 检测逻辑宿主 ==========
     val detectionFunctions = DetectionFunctions(this)
 
-    // ========== 异常检测结果(粘性)：一旦检出持续显示，只能通过重置清除 ==========
-    val detectedIssues = mutableStateListOf<DetectionItems>()
+    // ========== 异常检测结果(粘性)：检测项 -> 详情(可空，如小窗包名) ==========
+    // 一旦检出持续显示，只能通过重置清除；重复上报时详情取最新值
+    val detectedIssues = mutableStateMapOf<DetectionItems, String?>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

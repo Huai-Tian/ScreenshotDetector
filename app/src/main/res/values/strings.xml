@@ -14,6 +14,7 @@
     <string name="picture_in_picture">Picture-in-picture</string>
     <string name="floating_window">Floating window detected</string>
     <string name="freeform_window">Freeform window detected</string>
+    <string name="freeform_window_detail">Freeform window: %1$s</string>
     <string name="focus_taken">Window focus taken</string>
     <string name="adb_enabled">ADB debugging enabled</string>
     <string name="developer_options">Developer options enabled</string>

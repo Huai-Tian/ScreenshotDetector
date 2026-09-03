@@ -72,6 +72,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var isTouchObscured = false
     private var isInBackground = false
 
+    // ---------- 环境检测/行为检测的上报回调(签名统一为携带详情) ----------
+    private fun envAdapter(onIssue: (DetectionItems, String?) -> Unit): (DetectionItems) -> Unit =
+        { item -> onIssue(item, null) }
+
     // ---------- 媒体库权限申请 ----------
     private val requestPermissionLauncher = activity.registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -90,17 +94,13 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- 拦截触摸事件，检测悬浮窗遮挡 ----------
     fun dispatchTouchEvent(ev: MotionEvent) {
         var obscured = (ev.flags and MotionEvent.FLAG_WINDOW_IS_OBSCURED) != 0
-        var partially = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            partially = (ev.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0
+            val partially =
+                (ev.flags and MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED) != 0
             obscured = obscured or partially
         }
         if (obscured != isTouchObscured) {
             isTouchObscured = obscured
-            Auxiliary.log(
-                "WindowTouch: obscured state changed to $obscured " +
-                        "(action=0x${Integer.toHexString(ev.actionMasked)} partially=$partially)"
-            )
             if (obscured && isBehaviorDetectionActive) {
                 behaviorIssueCallback?.invoke(DetectionItems.FLOATING_WINDOW)
             }
@@ -346,9 +346,9 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     // ---------- 环境安全检测(ADB/开发者选项/无障碍，分别上报) ----------
-    fun startEnvironmentDetection(onIssue: (DetectionItems) -> Unit) {
+    fun startEnvironmentDetection(onIssue: (DetectionItems, String?) -> Unit) {
         stopEnvironmentDetection()
-        environmentIssueCallback = onIssue
+        environmentIssueCallback = envAdapter(onIssue)
 
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
@@ -392,10 +392,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     // ---------- 可疑行为检测(切屏/小窗/画中画/悬浮窗，分别上报) ----------
-    fun startBehaviorDetection(onIssue: (DetectionItems) -> Unit) {
+    fun startBehaviorDetection(onIssue: (DetectionItems, String?) -> Unit) {
         stopBehaviorDetection()
         isBehaviorDetectionActive = true
-        behaviorIssueCallback = onIssue
+        behaviorIssueCallback = envAdapter(onIssue)
         checkBehaviorState()
         behaviorPollingJob = CoroutineScope(Dispatchers.Main).launch {
             while (isActive) {
@@ -466,16 +466,12 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     // ---------- 窗口反射检测(自由小窗/系统级悬浮窗，共用同一轮询) ----------
     /**
-     * 启动窗口检测：每秒轮询一次 [WindowReflectionDetector]。
+     * 启动窗口检测：按轮询间隔轮询 [WindowReflectionDetector]。
      * 检测器基于反射信号(焦点丢失/虚拟显示器/环境探测)，不使用无障碍服务；
      * 触摸遮挡信号由 [dispatchTouchEvent] 补充。
      */
-    fun startWindowDetection(onIssue: (DetectionItems) -> Unit) {
+    fun startWindowDetection(onIssue: (DetectionItems, String?) -> Unit) {
         windowDetectionRefCount++
-        Auxiliary.log(
-            "WindowDetection: start requested " +
-                    "(refCount=$windowDetectionRefCount, polling=${windowPollingJob != null})"
-        )
         if (windowDetectionRefCount > 1 || windowPollingJob != null) {
             return
         }
@@ -499,7 +495,6 @@ class DetectionFunctions(private val activity: MainActivity) {
         windowPollingJob?.cancel()
         windowPollingJob = null
         windowReflectionDetector = null
-        Auxiliary.log("WindowDetection: stopped, polling cancelled")
     }
 
     /** 由 Activity 的 onWindowFocusChanged 转发(窗口焦点探测的精确信号) */

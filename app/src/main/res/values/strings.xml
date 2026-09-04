@@ -55,10 +55,10 @@
     <string name="permission_not_enabled">Not enabled · tap to open Settings</string>
     <string name="permission_all_granted">All permissions granted</string>
     <!--检测增强服务(可选)-->
-    <string name="accessibility_service_label">Detection enhancement (Accessibility)</string>
+    <string name="accessibility_service_label">Detection enhancement</string>
     <string name="accessibility_service_summary">Real-time window attribution to enhance detection</string>
     <string name="accessibility_service_description">Used only to enhance screen-capture behavior detection: reads window package names and window-state-change events in real time for freeform-window attribution, occlusion-source attribution, and audio-recording source inference. Window content and personal data are never read.</string>
-    <string name="notification_listener_label">Detection enhancement (Notifications)</string>
+    <string name="notification_listener_label">Detection enhancement</string>
     <!--检测增强项-->
     <string name="recording_service_active">Recording/casting service running</string>
     <string name="recording_service_detail">Ongoing (%1$d): %2$s</string>

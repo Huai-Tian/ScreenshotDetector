@@ -55,10 +55,10 @@
     <string name="permission_not_enabled">未启用 · 点击前往设置</string>
     <string name="permission_all_granted">全部权限已授权</string>
     <!--检测增强服务(可选)-->
-    <string name="accessibility_service_label">检测增强（无障碍）</string>
+    <string name="accessibility_service_label">检测增强</string>
     <string name="accessibility_service_summary">实时窗口归因，增强检测能力</string>
     <string name="accessibility_service_description">仅用于增强截屏行为检测：实时读取窗口包名与窗口状态变化事件，用于自由小窗归因、遮挡来源归因与录音来源推测。不读取任何窗口内容与个人数据。</string>
-    <string name="notification_listener_label">检测增强（通知）</string>
+    <string name="notification_listener_label">检测增强</string>
     <!--检测增强项-->
     <string name="recording_service_active">录屏/投屏服务运行中</string>
     <string name="recording_service_detail">常驻(%1$d)：%2$s</string>

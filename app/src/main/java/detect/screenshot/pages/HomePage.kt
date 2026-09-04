@@ -81,6 +81,9 @@ private val NormalStatusColor = Color(0xFF2E7D32)
 
 private val PermDeniedColor = Color(0xFFE53935)
 
+/** 增强服务(无障碍/通知使用权)未启用时的提示色：蓝色示意"可选增强"而非"缺失风险" */
+private val EnhancementColor = Color(0xFF1E88E5)
+
 private val IssueCardColor = Color(0xFFE0E0E0)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -124,6 +127,9 @@ fun HomeCompose(
         }
     }
 
+    // 图标语义(仅图标区分，不着色；所有权限均为可选，仅表示检测能力面)：
+    // 常规权限(照片视频/使用情况/应用列表)未全部授权 → Warning；
+    // 常规已全授但增强服务(无障碍/通知使用权)未全部开启 → Lock；全部就绪 → Shield
     val permIcon = when {
         permItems.any { !it.granted && !it.isEnhancement } -> Icons.Outlined.Warning
         permItems.any { !it.granted } -> Icons.Outlined.Lock
@@ -206,18 +212,29 @@ fun HomeCompose(
                                                         }
                                                     ),
                                                     fontSize = 12.sp,
-                                                    color = if (item.granted) NormalStatusColor
-                                                    else PermDeniedColor
+                                                    color = when {
+                                                        item.granted -> NormalStatusColor
+                                                        // 增强项未启用：蓝色(可选增强，非风险)
+                                                        item.isEnhancement -> EnhancementColor
+                                                        else -> PermDeniedColor
+                                                    }
                                                 )
                                             }
                                         },
                                         leadingIcon = {
                                             Icon(
-                                                imageVector = if (item.granted) Icons.Outlined.Check
-                                                else Icons.Outlined.Warning,
+                                                imageVector = when {
+                                                    item.granted -> Icons.Outlined.Check
+                                                    // 增强项未启用：Shield(能力增强，非缺失风险)
+                                                    item.isEnhancement -> Icons.Outlined.Shield
+                                                    else -> Icons.Outlined.Warning
+                                                },
                                                 contentDescription = null,
-                                                tint = if (item.granted) NormalStatusColor
-                                                else PermDeniedColor
+                                                tint = when {
+                                                    item.granted -> NormalStatusColor
+                                                    item.isEnhancement -> EnhancementColor
+                                                    else -> PermDeniedColor
+                                                }
                                             )
                                         },
                                         onClick = {
@@ -419,7 +436,7 @@ private data class PermItem(
     @StringRes val labelRes: Int,
     val granted: Boolean,
     val jump: PermissionJump,
-    /** 增强型权限(无障碍/通知使用权)：基础权限全部授权后面板图标才从 Lock 升级 */
+    /** 增强项(无障碍/通知使用权)：仅当其余三项均已授权时，面板图标才从 Lock 升级为 Shield */
     val isEnhancement: Boolean = false
 )
 

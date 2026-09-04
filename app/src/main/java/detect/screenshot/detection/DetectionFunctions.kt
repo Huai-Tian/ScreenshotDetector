@@ -27,7 +27,6 @@ import android.view.Display
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -129,6 +128,14 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var isTouchObscured = false
     private var isInBackground = false
 
+    /**
+     * 自发导航标志：本应用主动发起的系统权限对话框/引导跳转设置期间为 true，
+     * 此间离开前台不算切屏(用户并未主动切走)。仅在 onActivityResumed 清除——
+     * 权限结果回调先于 onResume 到达，若在回调里清除，轮询可能落在
+     * "回调已到、尚未 onResume"的间隙而误报切屏。
+     */
+    private var isSelfNavigation = false
+
     // ========== 外接显示器监听(桌面模式信号) ==========
     /**
      * DisplayManager.DisplayListener.onDisplayAdded：外接显示器接入是
@@ -153,7 +160,7 @@ class DetectionFunctions(private val activity: MainActivity) {
                 pendingMediaLibraryCallback = null
             }
         } else {
-            Toast.makeText(activity, activity.getString(R.string.require_permission), Toast.LENGTH_SHORT).show()
+            // 拒绝授权是用户的选择，不提示；权限状态面板会持续显示该项未授权
             pendingMediaLibraryCallback = null
         }
     }
@@ -500,6 +507,9 @@ class DetectionFunctions(private val activity: MainActivity) {
             } else {
                 Manifest.permission.READ_EXTERNAL_STORAGE
             }
+            // 系统权限对话框以独立 Activity 覆盖本应用(触发 onPause)，
+            // 属自发导航，期间切屏检测静默(见 isSelfNavigation 注释)
+            isSelfNavigation = true
             requestPermissionLauncher.launch(permission)
             return
         }
@@ -678,7 +688,7 @@ class DetectionFunctions(private val activity: MainActivity) {
     private fun checkBehaviorState() {
         if (!isBehaviorDetectionActive) return
         val callback = behaviorIssueCallback ?: return
-        if (isInBackground) {
+        if (isInBackground && !isSelfNavigation) {
             callback(DetectionItems.SCREEN_SWITCH)
         }
         if (activity.isInMultiWindowMode) {
@@ -1240,14 +1250,24 @@ class DetectionFunctions(private val activity: MainActivity) {
         windowReflectionDetector?.onTopResumedActivityChanged(isTopResumed)
     }
 
-    /** 由 Activity 的 onPause/onResume 转发 */
-    fun onActivityPaused() {
+    /**
+     * 由 Activity 的 onStop 转发：完全不可见才视为切屏。仅 onPause 的情形
+     * (系统浮层/ColorOS 隐私提示横幅/下拉通知栏/浮动权限询问框等部分遮挡)
+     * 不计——此前按 onPause 判定，任何瞬时浮层都会误报切屏。
+     */
+    fun onActivityStopped() {
         isInBackground = true
         checkBehaviorState()
     }
 
+    /** 标记即将发生的自发导航(权限面板引导跳转设置)，期间切屏不计 */
+    fun markSelfNavigation() {
+        isSelfNavigation = true
+    }
+
     fun onActivityResumed() {
         isInBackground = false
+        isSelfNavigation = false
     }
 
     /** 停止全部检测(由 Activity onDestroy 调用) */

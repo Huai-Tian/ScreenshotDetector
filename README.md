@@ -49,6 +49,9 @@ It operates at the application layer, detecting screen capture events via system
 - **File monitoring**  
   Monitors file changes via `FileObserver` in the screenshots directory; a directory scan runs at registration, covering screenshot files written before the app was opened
 
+- **Permission status panel**  
+  A top-bar security-level icon reflects the live permission state: Warning = the three permissions (Photos and videos / Usage access / App list) are not all granted; Lock = all three granted but this app's own accessibility service is not enabled; Shield = everything ready. Tapping expands the details (500ms polling while open). Tapping an ungranted item: Photos and videos is a runtime permission and pops the system dialog directly (jumping to app details only after "Don't ask again"), while Usage access / App list are special-access grants that jump to their Settings screens; the app-list item uses the same full-enumeration call as the consuming detection path and decides by result size (the ColorOS toggle intercepts full enumeration but not single-package queries)
+
 - **Auxiliary detection**  
   Assists in detecting casting and mirroring via `MediaRouter`
 
@@ -83,7 +86,7 @@ It operates at the application layer, detecting screen capture events via system
   - Shizuku/Root mode: Operates at the **privileged layer**, leveraging system API calls to replace screenshot content and bypass detection
 
 - **ScreenshotDetector**:
-  - Operates at the **application layer**, detecting screenshot status via public system APIs. It has limited detection capability against system framework-layer behaviors (e.g., LSPosed) and some detection capability against privileged-layer behaviors (e.g., Shizuku/Root).
+  - Operates at the **application layer**, detecting screenshot status via system APIs. It has limited detection capability against system framework-layer behaviors (e.g., LSPosed) and some detection capability against privileged-layer behaviors (e.g., Shizuku/Root).
 
 ### Detection Principles
 
@@ -102,7 +105,7 @@ Based on Android public system APIs:
 - `TrustedPresentationListener` (Android 15+): Detects the app's window falling out of the trusted presentation state, reported as incomplete window presentation; the server only fires on state transitions, so the "occluded before the app was opened" scenario is covered by a bootstrap timeout (no callback after registration)
 - `UsageStatsManager` (requires "Usage access" permission): Queries the foreground app for window detection attribution — focus taken while self is still the top app indicates a floating window; focus held by another app while the app stays RESUMED (a normal app switch would pause it first) indicates a freeform window, with a freshness filter on `lastTimeUsed` to exclude stale top-app records
 
-Based on Android hidden system APIs (invoked via reflection after exempting non‑SDK interface restrictions with [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass)):
+Based on Android hidden system APIs:
 - `WindowManagerGlobal.mViews`: Enumerates this process's window list to rule out false positives caused by the app's own dialogs holding focus
 - `DisplayManagerGlobal.getDisplayInfo`: Reads `DisplayInfo.type/flags/name` and the virtual display creator's `ownerPackageName` for display attribution. No recording-keyword inference (recording apps vary in how they name/create virtual displays, so keyword matching would miss cases) — it reports the fact "a virtual display exists + its creator's package name"
 - `DisplayManager.getWifiDisplayStatus` and the WFD status-changed broadcast: Miracast connection state and the remote display's device name (the server side explicitly requires no permission)

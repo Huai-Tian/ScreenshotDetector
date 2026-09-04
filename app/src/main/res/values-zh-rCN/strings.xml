@@ -42,6 +42,14 @@
     <string name="monitoring">监测中…</string>
     <string name="detect_again">重新检测</string>
     <string name="require_permission">工作需要权限</string>
+    <!--HomePage 权限状态面板-->
+    <string name="permission_status">权限状态</string>
+    <string name="permission_photos_video">照片和视频</string>
+    <string name="permission_usage_access">使用情况</string>
+    <string name="permission_app_list">应用列表</string>
+    <string name="permission_granted">已授权</string>
+    <string name="permission_not_granted">未授权 · 点击前往设置</string>
+    <string name="permission_all_granted">全部权限已授权</string>
     <string name="more">更多</string>
     <string name="open_source">开放源代码</string>
     <string name="info">关于</string>

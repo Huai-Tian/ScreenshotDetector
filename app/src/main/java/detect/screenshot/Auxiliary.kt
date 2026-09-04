@@ -2,11 +2,13 @@ package detect.screenshot
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.AppOpsManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
+import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
@@ -17,6 +19,12 @@ import detect.screenshot.detection.DetectionItems
 import java.io.File
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
+
+/**
+ * 全量枚举可见的最低包数阈值：正常设备(预装+用户应用)必然远超此数；
+ * 被 ColorOS"获取应用列表"开关拦截时通常仅返回自身与极少数系统包
+ */
+private const val APP_LIST_MIN_COUNT = 20
 
 object Auxiliary {
     const val BEHAVIOR_POLL_INTERVAL = 1000L
@@ -142,6 +150,47 @@ object Auxiliary {
                 Manifest.permission.READ_EXTERNAL_STORAGE
             ) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    /**
+     * 是否已授予"使用情况访问权"(PACKAGE_USAGE_STATS 为特殊访问授权，运行时
+     * 权限接口不可查，经 AppOps OPSTR_GET_USAGE_STATS 查询)。
+     */
+    fun hasUsageAccess(context: Context): Boolean = try {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            context.packageName
+        ) == AppOpsManager.MODE_ALLOWED
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
+     * 应用列表(全量枚举)是否可用。QUERY_ALL_PACKAGES 在原生 Android 为安装时
+     * 权限恒可见；ColorOS 存在运行时"获取应用列表"开关，拦截点在全量枚举
+     * (getInstalledPackages 返回被裁剪的极小集合)而非单包查询——实测未授权时
+     * 单包 getPackageInfo 仍放行，故探测必须与消费路径(投屏授权枚举)同款
+     * 调用，按返回规模判定。
+     */
+    fun appListVisible(context: Context): Boolean = try {
+        context.packageManager.getInstalledPackages(0).size > APP_LIST_MIN_COUNT
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
+     * 本应用自身的无障碍服务是否已启用：过滤系统已启用无障碍服务列表中的
+     * 本包名条目(与 environmentIssues 同数据源，实时 Binder 查询)。
+     * 当前应用未声明无障碍服务时恒为 false。
+     */
+    fun isOwnAccessibilityServiceEnabled(context: Context): Boolean = try {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { it.resolveInfo?.serviceInfo?.packageName == context.packageName }
+    } catch (_: Exception) {
+        false
     }
 
     fun isScreenshotFakerPresent(context: Context): Boolean {

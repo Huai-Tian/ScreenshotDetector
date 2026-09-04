@@ -1,12 +1,10 @@
 package detect.screenshot.detection
 
 import android.annotation.SuppressLint
-import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.PowerManager
-import android.os.Process
 import android.view.View
 import androidx.lifecycle.Lifecycle
 import detect.screenshot.Auxiliary
@@ -266,17 +264,8 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         }
     }
 
-    /** 是否已授予"使用情况访问权" */
-    private fun hasUsageAccess(): Boolean = try {
-        val appOps = activity.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        appOps.unsafeCheckOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            Process.myUid(),
-            activity.packageName
-        ) == AppOpsManager.MODE_ALLOWED
-    } catch (_: Exception) {
-        false
-    }
+    /** 是否已授予"使用情况访问权"(统一走 Auxiliary，供权限面板复用) */
+    private fun hasUsageAccess(): Boolean = Auxiliary.hasUsageAccess(activity)
 
     // ---------- 反射工具 ----------
 

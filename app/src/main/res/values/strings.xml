@@ -42,6 +42,14 @@
     <string name="monitoring">Monitoring…</string>
     <string name="detect_again">Detect again</string>
     <string name="require_permission">Require permission to work</string>
+    <!--HomePage 权限状态面板-->
+    <string name="permission_status">Permission status</string>
+    <string name="permission_photos_video">Photos and videos</string>
+    <string name="permission_usage_access">Usage access</string>
+    <string name="permission_app_list">App list</string>
+    <string name="permission_granted">Granted</string>
+    <string name="permission_not_granted">Not granted · tap to open Settings</string>
+    <string name="permission_all_granted">All permissions granted</string>
     <string name="more">More</string>
     <string name="open_source">Open Source</string>
     <string name="info">Info</string>

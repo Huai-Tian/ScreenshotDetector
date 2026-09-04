@@ -1,7 +1,14 @@
 package detect.screenshot.pages
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +30,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,14 +68,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
+import detect.screenshot.Auxiliary
 import detect.screenshot.detection.DetectionItems
 import detect.screenshot.MainActivity
 import detect.screenshot.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
-// "正常"状态文字颜色(深绿)
 private val NormalStatusColor = Color(0xFF2E7D32)
 
-// 异常卡片统一描边色(淡灰)
+private val PermDeniedColor = Color(0xFFE53935)
+
 private val IssueCardColor = Color(0xFFE0E0E0)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,14 +96,51 @@ fun HomeCompose(
     var info by remember { mutableStateOf(false) }
     var openSource by remember { mutableStateOf(false) }
 
+    // ========== 权限状态面板(顶栏安全等级图标入口) ==========
+    var permExpanded by remember { mutableStateOf(false) }
+    var permItems by remember { mutableStateOf(queryPermItems(activity)) }
+    var ownAccessibility by remember {
+        mutableStateOf(Auxiliary.isOwnAccessibilityServiceEnabled(activity))
+    }
+    var storageGranted by remember { mutableStateOf(Auxiliary.hasStoragePermission(activity)) }
+
+    val mediaPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted && !activity.shouldShowRequestPermissionRationale(mediaPermissionName())) {
+            openPermissionSettings(context, PermissionJump.APP_DETAILS)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val items = withContext(Dispatchers.Default) {
+                queryPermItems(activity).also {
+                    ownAccessibility = Auxiliary.isOwnAccessibilityServiceEnabled(activity)
+                }
+            }
+            permItems = items
+            val storageNow = items.first { it.jump == PermissionJump.RUNTIME_PERMISSION }.granted
+            if (storageNow && !storageGranted) {
+                DetectionItems.MEDIA_LIBRARY.start(activity.detectionFunctions) { item, detail ->
+                    issues[item] = detail
+                }
+            }
+            storageGranted = storageNow
+            delay((if (permExpanded) 500L else 2_000L).milliseconds)
+        }
+    }
+
+    val permIcon = when {
+        permItems.any { !it.granted } -> Icons.Outlined.Warning
+        !ownAccessibility -> Icons.Outlined.Lock
+        else -> Icons.Outlined.Shield
+    }
+
     fun stopAllDetections() {
         DetectionItems.entries.forEach { it.stop(activity.detectionFunctions) }
     }
 
-    /**
-     * 开始一轮新的监测：清空既往异常结果并重新挂载全部回调。
-     * 所有检测项全量开启；"重置检测结果"与"重新检测"共用该逻辑。
-     */
     fun startAllDetections() {
         stopAllDetections()
         issues.clear()
@@ -97,10 +151,8 @@ fun HomeCompose(
         }
     }
 
-    // 进入页面即开始全量检测
     DisposableEffect(Unit) {
         startAllDetections()
-        // 无障碍项为实时状态(非粘性)：服务全部停用后自动移除卡片
         activity.detectionFunctions.setEnvironmentClearCallback { item ->
             issues.remove(item)
         }
@@ -112,6 +164,82 @@ fun HomeCompose(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
+                    Box {
+                        IconButton(onClick = { permExpanded = true }) {
+                            Icon(
+                                imageVector = permIcon,
+                                contentDescription = stringResource(R.string.permission_status)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = permExpanded,
+                            onDismissRequest = { permExpanded = false },
+                            modifier = Modifier.width(300.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.permission_status),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                            if (permItems.all { it.granted }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.permission_all_granted)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Outlined.Check,
+                                            contentDescription = null,
+                                            tint = NormalStatusColor
+                                        )
+                                    },
+                                    onClick = { permExpanded = false }
+                                )
+                            } else {
+                                permItems.forEach { item ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(stringResource(item.labelRes))
+                                                Text(
+                                                    text = stringResource(
+                                                        if (item.granted) R.string.permission_granted
+                                                        else R.string.permission_not_granted
+                                                    ),
+                                                    fontSize = 12.sp,
+                                                    color = if (item.granted) NormalStatusColor
+                                                    else PermDeniedColor
+                                                )
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = if (item.granted) Icons.Outlined.Check
+                                                else Icons.Outlined.Warning,
+                                                contentDescription = null,
+                                                tint = if (item.granted) NormalStatusColor
+                                                else PermDeniedColor
+                                            )
+                                        },
+                                        onClick = {
+                                            if (!item.granted) {
+                                                // 权限弹窗/跳设置为自发导航，期间切屏不计
+                                                activity.detectionFunctions.markSelfNavigation()
+                                                if (item.jump == PermissionJump.RUNTIME_PERMISSION) {
+                                                    // 运行时权限直接弹系统授权框
+                                                    // (勾选"不再询问"后才跳设置，见回调)
+                                                    mediaPermLauncher.launch(mediaPermissionName())
+                                                } else {
+                                                    // 特殊访问授权无弹窗，只能去设置
+                                                    openPermissionSettings(context, item.jump)
+                                                }
+                                                permExpanded = false
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(onClick = { startAllDetections() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -153,7 +281,6 @@ fun HomeCompose(
             )
         }
     ) { padding ->
-        // 内容不足一屏时垂直居中(以顶栏下方区域为参考)，超屏时可滚动且不被顶栏遮挡
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -162,7 +289,6 @@ fun HomeCompose(
             contentAlignment = Alignment.Center
         ) {
             when {
-                // 监测中，暂无异常
                 issues.isEmpty() -> {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -182,7 +308,7 @@ fun HomeCompose(
                         )
                     }
                 }
-                // 检出异常：卡片列表(整屏居中，可滚动)
+
                 else -> {
                     Column(
                         modifier = Modifier
@@ -289,7 +415,61 @@ fun HomeCompose(
     }
 }
 
-// 异常结果卡片：白色背景 + 灰色描边，detail 非空时附详情行(如小窗包名)
+private data class PermItem(
+    @StringRes val labelRes: Int,
+    val granted: Boolean,
+    val jump: PermissionJump
+)
+
+private enum class PermissionJump {
+    RUNTIME_PERMISSION,
+    USAGE_ACCESS,
+    APP_DETAILS
+}
+
+private fun queryPermItems(context: Context): List<PermItem> = listOf(
+    PermItem(
+        R.string.permission_photos_video,
+        Auxiliary.hasStoragePermission(context),
+        PermissionJump.RUNTIME_PERMISSION
+    ),
+    PermItem(
+        R.string.permission_usage_access,
+        Auxiliary.hasUsageAccess(context),
+        PermissionJump.USAGE_ACCESS
+    ),
+    PermItem(
+        R.string.permission_app_list,
+        Auxiliary.appListVisible(context),
+        PermissionJump.APP_DETAILS
+    ),
+)
+
+private fun mediaPermissionName(): String =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+private fun openPermissionSettings(context: Context, jump: PermissionJump) {
+    val appDetails = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        "package:${context.packageName}".toUri()
+    )
+    runCatching {
+        context.startActivity(
+            if (jump == PermissionJump.USAGE_ACCESS) {
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            } else {
+                appDetails
+            }
+        )
+    }.onFailure {
+        runCatching { context.startActivity(appDetails) }
+    }
+}
+
 @Composable
 private fun IssueCard(issue: DetectionItems, detail: String?) {
     Card(
@@ -329,15 +509,51 @@ private fun IssueCard(issue: DetectionItems, detail: String?) {
 @Composable
 fun OpenSourceLicensesScreen(onBack: () -> Unit) {
     val libraries = listOf(
-        LibraryInfo("AndroidX Compose BOM", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX Activity Compose", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX Compose Material3", "Apache-2.0", "Copyright (c) 2019 The Android Open Source Project"),
-        LibraryInfo("AndroidX Compose UI", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX Compose UI Graphics", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX Compose Material Icons Core", "Apache-2.0", "Copyright (c) 2019 The Android Open Source Project"),
-        LibraryInfo("AndroidX Core KTX", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX Lifecycle Runtime KTX", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
-        LibraryInfo("AndroidX MediaRouter", "Apache-2.0", "Copyright (c) 2011 The Android Open Source Project"),
+        LibraryInfo(
+            "AndroidX Compose BOM",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Activity Compose",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Compose Material3",
+            "Apache-2.0",
+            "Copyright (c) 2019 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Compose UI",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Compose UI Graphics",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Compose Material Icons Core",
+            "Apache-2.0",
+            "Copyright (c) 2019 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Core KTX",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Lifecycle Runtime KTX",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX MediaRouter",
+            "Apache-2.0",
+            "Copyright (c) 2011 The Android Open Source Project"
+        ),
         LibraryInfo("Kotlin Coroutines", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o."),
         LibraryInfo("Kotlin Stdlib", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o.")
     )
@@ -348,7 +564,10 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                 title = { Text(stringResource(R.string.open_source)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back)
+                        )
                     }
                 }
             )

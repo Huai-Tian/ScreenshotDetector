@@ -49,6 +49,9 @@
 - **文件监听**  
   通过 `FileObserver` 监听截图目录文件变化；注册时回扫目录，覆盖打开应用前落盘的截图文件
 
+- **权限状态面板**  
+  顶栏安全等级图标实时反映授权情况：警告=三项授权（照片和视频/使用情况/应用列表）未齐，锁=三项已齐但本应用无障碍服务未启用，盾牌=全部就绪；点击展开详情（面板展开时 500ms 轮询）。未授权项点击获取：照片和视频为运行时权限直接弹系统授权框（仅勾选"不再询问"后才跳应用详情页），使用情况/应用列表为特殊访问授权跳对应设置页；应用列表项与消费路径同款调用全量枚举、按返回规模判定（ColorOS 开关拦截全量枚举而不拦截单包查询）
+
 - **辅助检测**  
   通过 `MediaRouter` 辅助检测投屏行为
 
@@ -83,7 +86,7 @@
   - Shizuku/Root 模式：工作于**特权层**，通过系统 API 调用实现截屏替换与绕过检测
 
 - **ScreenshotDetector**：  
-  工作于**应用层**，通过系统公开 API 检测截屏状态。对系统框架层（LSPosed）的行为检测能力有限，对特权层（Shizuku/Root）的行为具有一定检测能力。
+  工作于**应用层**，通过系统 API 检测截屏状态。对系统框架层（LSPosed）的行为检测能力有限，对特权层（Shizuku/Root）的行为具有一定检测能力。
 
 ### 检测原理
 
@@ -101,7 +104,7 @@
 - `TrustedPresentationListener`（Android 15+）：检测本应用窗口跌出可信呈现态，上报窗口显示不完整；服务端仅在状态迁移时回调，"先遮挡再打开应用"的场景以注册后超时未回调（bootstrap 超时）兜底
 - `UsageStatsManager`（需"使用情况访问权"）：查询前台应用进行窗口检测归因——焦点被抢占但顶层应用仍是自己判定为悬浮窗；应用保持 RESUMED 而焦点与顶层应用归属他人（正常应用切换会先暂停本应用）判定为自由小窗，并对 `lastTimeUsed` 做新鲜度过滤排除陈旧的顶层应用记录
 
-基于 Android 系统隐藏 API 实现（经 [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) 豁免非 SDK 接口限制后反射调用）：
+基于 Android 系统隐藏 API 实现：
 - `WindowManagerGlobal.mViews`：枚举本进程窗口列表，排除自有对话框持有焦点造成的误报
 - `DisplayManagerGlobal.getDisplayInfo`：读取 `DisplayInfo.type/flags/name` 与虚拟显示器创建者 `ownerPackageName`，实现显示器归因。不做录屏特征词推断（各软件命名方式不一，特征词必然漏报），统一上报"存在虚拟显示器 + 创建者包名"的事实
 - `DisplayManager.getWifiDisplayStatus` 与 WFD 状态变化广播：Miracast 投屏连接状态与对端设备名（服务端明示无需权限）

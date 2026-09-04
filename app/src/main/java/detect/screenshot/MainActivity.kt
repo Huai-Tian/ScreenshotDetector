@@ -89,9 +89,9 @@ class MainActivity : ComponentActivity() {
         detectionFunctions.stopAll()
     }
 
-    override fun onPause() {
-        super.onPause()
-        detectionFunctions.onActivityPaused()
+    override fun onStop() {
+        super.onStop()
+        detectionFunctions.onActivityStopped()
     }
 
     override fun onResume() {

@@ -100,6 +100,10 @@ fun HomeCompose(
     // 进入页面即开始全量检测
     DisposableEffect(Unit) {
         startAllDetections()
+        // 无障碍项为实时状态(非粘性)：服务全部停用后自动移除卡片
+        activity.detectionFunctions.setEnvironmentClearCallback { item ->
+            issues.remove(item)
+        }
         onDispose { stopAllDetections() }
     }
 

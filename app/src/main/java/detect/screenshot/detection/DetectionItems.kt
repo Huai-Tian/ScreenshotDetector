@@ -13,7 +13,9 @@ import detect.screenshot.R
  * 所有检测项默认全部开启，调用方(HomeCompose)遍历 [entries] 即可
  * 完成检测启停，无需逐项配置。
  *
- * 检出结果持久显示(粘性)，只能通过"重置检测结果"按钮清除。
+ * 检出结果持久显示(粘性)，只能通过"重置检测结果"按钮清除(例外：无障碍项
+ * 为实时状态，随当前无障碍开关/服务集合同步，服务全部停用后卡片自动移除，
+ * 见 startEnvironmentDetection)。
  * onIssue 回调第二参数为可选详情(如小窗包名)，会显示在卡片标签下方。
  */
 @Immutable
@@ -33,20 +35,30 @@ enum class DetectionItems(
         start = { onIssue -> startScreenRecordingDetection { onIssue(SCREEN_RECORDING, null) } },
         stop = { stopScreenRecordingDetection() }
     ),
+    AUDIO_RECORDING(
+        R.string.audio_recording_active,
+        start = { onIssue -> startAudioRecordingDetection(onIssue) },
+        stop = { stopAudioRecordingDetection() }
+    ),
     SCREEN_MIRRORING(
         R.string.screen_mirroring,
-        start = { onIssue -> startMirroringDetection { onIssue(SCREEN_MIRRORING, null) } },
+        start = { onIssue -> startMirroringDetection(onIssue) },
         stop = { stopMirroringDetection() }
     ),
     EXTERNAL_DISPLAY(
         R.string.external_display,
-        start = { onIssue -> startExternalDisplayDetection { item, _ -> onIssue(item, null) } },
+        start = { onIssue -> startExternalDisplayDetection(onIssue) },
         stop = { stopExternalDisplayDetection() }
     ),
     MEDIA_PROJECTION(
         R.string.MediaProjection_state,
-        start = { onIssue -> startMediaProjectionDetection { onIssue(MEDIA_PROJECTION, null) } },
+        start = { onIssue -> startMediaProjectionDetection(onIssue) },
         stop = { stopMediaProjectionDetection() }
+    ),
+    MEDIA_PROJECTION_CONSENT(
+        R.string.projection_consent,
+        start = { onIssue -> startProjectionConsentDetection(onIssue) },
+        stop = { stopProjectionConsentDetection() }
     ),
     MEDIA_LIBRARY(
         R.string.media_library_changed,
@@ -57,11 +69,14 @@ enum class DetectionItems(
     // ---------- 环境风险 ----------
     ADB_ENABLED(
         R.string.adb_enabled,
-        start = { onIssue -> startEnvironmentDetection { item, _ -> onIssue(item, null) } },
+        start = { onIssue -> startEnvironmentDetection(onIssue) },
         stop = { stopEnvironmentDetection() }
     ),
+    ADB_WIFI(R.string.adb_wifi),
     DEVELOPER_OPTIONS(R.string.developer_options),
+    OVERLAY_DISPLAY(R.string.overlay_display_enabled),
     ACCESSIBILITY_SERVICE(R.string.accessibility_service),
+    WIRELESS_DISPLAY_ON(R.string.wireless_display_enabled),
 
     // ---------- 媒体 ----------
     FILE_CHANGES(

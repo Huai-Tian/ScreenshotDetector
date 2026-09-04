@@ -12,6 +12,10 @@
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- 免询问投屏授权检测需全量枚举应用以查询其 project_media AppOps 模式 -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />
     <queries>
         <package android:name="fake.screenshot" />
     </queries>

@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import detect.screenshot.detection.DetectionItems
 import java.io.File
@@ -117,8 +118,12 @@ object Auxiliary {
         )
         if (enabledServices.isNotEmpty()) {
             // 注：本方法被 200ms 轮询高频调用，勿在此打日志
+            // 排除本应用自身的增强服务(用户知情开启，非环境风险)；
+            // 仅剩自身服务时整个不上报(reportEnvironmentState 的清除回调
+            // 会移除既有卡片)，卡片与详情均只反映第三方无障碍服务
             val packages = enabledServices
                 .mapNotNull { it.resolveInfo?.serviceInfo?.packageName }
+                .filter { it != context.packageName }
                 .distinct()
             if (packages.isNotEmpty()) {
                 // 详情 = 完整数量 + 最多 5 个包名(与投屏授权详情同格式)
@@ -127,8 +132,6 @@ object Auxiliary {
                     packages.size,
                     packages.take(5).joinToString(", ")
                 )
-            } else {
-                issues += DetectionItems.ACCESSIBILITY_SERVICE to null
             }
         }
         // 无线显示开关(隐藏键 wifi_display_on；开启≠正在投屏，为辅助信号)
@@ -189,6 +192,18 @@ object Auxiliary {
         val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
             .any { it.resolveInfo?.serviceInfo?.packageName == context.packageName }
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
+     * 本应用的通知监听服务("通知使用权")是否已启用：
+     * NotificationManagerCompat 公开接口(读取 Settings.Secure 的
+     * enabled_notification_listeners 已启用列表)，包含本包名即已启用。
+     */
+    fun hasNotificationAccess(context: Context): Boolean = try {
+        NotificationManagerCompat.getEnabledListenerPackages(context)
+            .contains(context.packageName)
     } catch (_: Exception) {
         false
     }

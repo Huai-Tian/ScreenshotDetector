@@ -99,9 +99,6 @@ fun HomeCompose(
     // ========== 权限状态面板(顶栏安全等级图标入口) ==========
     var permExpanded by remember { mutableStateOf(false) }
     var permItems by remember { mutableStateOf(queryPermItems(activity)) }
-    var ownAccessibility by remember {
-        mutableStateOf(Auxiliary.isOwnAccessibilityServiceEnabled(activity))
-    }
     var storageGranted by remember { mutableStateOf(Auxiliary.hasStoragePermission(activity)) }
 
     val mediaPermLauncher = rememberLauncherForActivityResult(
@@ -114,11 +111,7 @@ fun HomeCompose(
 
     LaunchedEffect(Unit) {
         while (true) {
-            val items = withContext(Dispatchers.Default) {
-                queryPermItems(activity).also {
-                    ownAccessibility = Auxiliary.isOwnAccessibilityServiceEnabled(activity)
-                }
-            }
+            val items = withContext(Dispatchers.Default) { queryPermItems(activity) }
             permItems = items
             val storageNow = items.first { it.jump == PermissionJump.RUNTIME_PERMISSION }.granted
             if (storageNow && !storageGranted) {
@@ -132,8 +125,8 @@ fun HomeCompose(
     }
 
     val permIcon = when {
-        permItems.any { !it.granted } -> Icons.Outlined.Warning
-        !ownAccessibility -> Icons.Outlined.Lock
+        permItems.any { !it.granted && !it.isEnhancement } -> Icons.Outlined.Warning
+        permItems.any { !it.granted } -> Icons.Outlined.Lock
         else -> Icons.Outlined.Shield
     }
 
@@ -202,8 +195,15 @@ fun HomeCompose(
                                                 Text(stringResource(item.labelRes))
                                                 Text(
                                                     text = stringResource(
-                                                        if (item.granted) R.string.permission_granted
-                                                        else R.string.permission_not_granted
+                                                        when {
+                                                            // 增强服务是"启用"而非"授权"
+                                                            item.isEnhancement -> if (item.granted)
+                                                                R.string.permission_enabled
+                                                            else R.string.permission_not_enabled
+
+                                                            item.granted -> R.string.permission_granted
+                                                            else -> R.string.permission_not_granted
+                                                        }
                                                     ),
                                                     fontSize = 12.sp,
                                                     color = if (item.granted) NormalStatusColor
@@ -418,13 +418,17 @@ fun HomeCompose(
 private data class PermItem(
     @StringRes val labelRes: Int,
     val granted: Boolean,
-    val jump: PermissionJump
+    val jump: PermissionJump,
+    /** 增强型权限(无障碍/通知使用权)：基础权限全部授权后面板图标才从 Lock 升级 */
+    val isEnhancement: Boolean = false
 )
 
 private enum class PermissionJump {
     RUNTIME_PERMISSION,
     USAGE_ACCESS,
-    APP_DETAILS
+    APP_DETAILS,
+    ACCESSIBILITY,
+    NOTIFICATION_ACCESS
 }
 
 private fun queryPermItems(context: Context): List<PermItem> = listOf(
@@ -443,6 +447,18 @@ private fun queryPermItems(context: Context): List<PermItem> = listOf(
         Auxiliary.appListVisible(context),
         PermissionJump.APP_DETAILS
     ),
+    PermItem(
+        R.string.permission_accessibility,
+        Auxiliary.isOwnAccessibilityServiceEnabled(context),
+        PermissionJump.ACCESSIBILITY,
+        isEnhancement = true
+    ),
+    PermItem(
+        R.string.permission_notification_access,
+        Auxiliary.hasNotificationAccess(context),
+        PermissionJump.NOTIFICATION_ACCESS,
+        isEnhancement = true
+    ),
 )
 
 private fun mediaPermissionName(): String =
@@ -457,14 +473,14 @@ private fun openPermissionSettings(context: Context, jump: PermissionJump) {
         Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         "package:${context.packageName}".toUri()
     )
+    val target = when (jump) {
+        PermissionJump.USAGE_ACCESS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+        PermissionJump.ACCESSIBILITY -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        PermissionJump.NOTIFICATION_ACCESS -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        else -> appDetails
+    }
     runCatching {
-        context.startActivity(
-            if (jump == PermissionJump.USAGE_ACCESS) {
-                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-            } else {
-                appDetails
-            }
-        )
+        context.startActivity(target)
     }.onFailure {
         runCatching { context.startActivity(appDetails) }
     }
@@ -508,54 +524,86 @@ private fun IssueCard(issue: DetectionItems, detail: String?) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OpenSourceLicensesScreen(onBack: () -> Unit) {
+    // 版本号为 Gradle 依赖解析的真实版本(debugRuntimeClasspath)
     val libraries = listOf(
         LibraryInfo(
-            "AndroidX Compose BOM",
+            "AndroidX Activity Compose",
+            "1.13.0",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
-            "AndroidX Activity Compose",
+            "AndroidX Compose BOM",
+            "2026.08.00",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Compose Material3",
+            "1.4.0",
             "Apache-2.0",
             "Copyright (c) 2019 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Compose UI",
+            "1.12.0",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Compose UI Graphics",
+            "1.12.0",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Compose Material Icons Core",
+            "1.7.8",
+            "Apache-2.0",
+            "Copyright (c) 2019 The Android Open Source Project"
+        ),
+        LibraryInfo(
+            "AndroidX Compose Material Icons Extended",
+            "1.7.8",
             "Apache-2.0",
             "Copyright (c) 2019 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Core KTX",
+            "1.19.0",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX Lifecycle Runtime KTX",
+            "2.11.0",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
         LibraryInfo(
             "AndroidX MediaRouter",
+            "1.8.1",
             "Apache-2.0",
             "Copyright (c) 2011 The Android Open Source Project"
         ),
-        LibraryInfo("Kotlin Coroutines", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o."),
-        LibraryInfo("Kotlin Stdlib", "Apache-2.0", "Copyright (c) 2016 JetBrains s.r.o.")
+        LibraryInfo(
+            "HiddenApiBypass (LSPosed)",
+            "6.1",
+            "Apache-2.0",
+            "Copyright (c) LSPosed Contributors"
+        ),
+        LibraryInfo(
+            "Kotlin Coroutines",
+            "1.9.0",
+            "Apache-2.0",
+            "Copyright (c) 2016 JetBrains s.r.o."
+        ),
+        LibraryInfo(
+            "Kotlin Stdlib",
+            "2.4.10",
+            "Apache-2.0",
+            "Copyright (c) 2016 JetBrains s.r.o."
+        )
     )
 
     Scaffold(
@@ -578,35 +626,65 @@ fun OpenSourceLicensesScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(libraries) { lib ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp)
-                ) {
-                    Text(
-                        text = lib.name,
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        text = "${stringResource(R.string.license)}: ${lib.license}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        text = lib.copyright,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
+                LicenseCard(lib)
             }
+        }
+    }
+}
+
+/** 单个开源库卡片(与主页 IssueCard 同视觉风格) */
+@Composable
+private fun LicenseCard(lib: LibraryInfo) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(2.dp, IssueCardColor)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 14.dp)
+        ) {
+            Text(
+                text = lib.name,
+                fontSize = 16.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF333333)
+            )
+            Text(
+                text = stringResource(R.string.open_source_version, lib.version),
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = "${stringResource(R.string.license)}: ${lib.license}",
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = lib.copyright,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color(0xFF757575),
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
     }
 }
 
 data class LibraryInfo(
     val name: String,
+    val version: String,
     val license: String,
     val copyright: String
 )

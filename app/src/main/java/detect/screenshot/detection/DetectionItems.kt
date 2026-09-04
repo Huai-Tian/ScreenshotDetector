@@ -60,6 +60,11 @@ enum class DetectionItems(
         start = { onIssue -> startProjectionConsentDetection(onIssue) },
         stop = { stopProjectionConsentDetection() }
     ),
+    RECORDING_SERVICE(
+        R.string.recording_service_active,
+        start = { onIssue -> startRecordingServiceDetection(onIssue) },
+        stop = { stopRecordingServiceDetection() }
+    ),
     MEDIA_LIBRARY(
         R.string.media_library_changed,
         start = { onIssue -> startMediaLibraryDetection { onIssue(MEDIA_LIBRARY, null) } },

@@ -6,6 +6,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.PowerManager
 import android.view.View
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.lifecycle.Lifecycle
 import detect.screenshot.Auxiliary
 import detect.screenshot.MainActivity
@@ -13,7 +14,8 @@ import detect.screenshot.R
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 
 /**
- * 纯反射的窗口检测器(不使用无障碍服务，不需要 ROOT)。
+ * 窗口检测器：反射信号为主，无障碍窗口快照为增强(可选，需用户开启本应用
+ * 无障碍服务；未开启时各增强路径自动退回反射/用量统计路径，不需要 ROOT)。
  *
  * 检测项与信号一一对应，互不辅助：
  * - FOCUS_LOSS(焦点被抢占)：焦点探测 —— RESUMED+亮屏但窗口持续失焦
@@ -25,11 +27,14 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  *   应用且本应用仍 RESUMED——正常应用切换会先 onPause，能保持 RESUMED
  *   说明对方以窗口形式覆盖本应用(ROM 小窗/自由窗口)，详情携带包名。
  *   该信号跨 ROM 可靠(不依赖虚拟屏命名/multiWindow 标志)。
+ *   无障碍增强：窗口快照中当前持焦点的外部窗口即为覆盖者(事实归因，
+ *   优先于用量统计推测，且不依赖"使用情况访问权")。
  *
  * 平台限制(经 AOSP 8.0/13/16 源码核实)：
  * 普通应用无法枚举系统全部窗口——IWindowManager 没有窗口枚举接口；
  * WindowInfosListener 需要 ACCESS_SURFACE_FLINGER；getTasks 被服务端
- * REAL_GET_TASKS 签名权限拦截。
+ * REAL_GET_TASKS 签名权限拦截。无障碍 getWindows 是唯一的应用层
+ * 跨应用窗口枚举路径(本检测器的增强来源)。
  */
 class WindowReflectionDetector(private val activity: MainActivity) {
 
@@ -173,6 +178,19 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         if (unfocusedPolls >= threshold) {
             // 独立信号：焦点被抢占
             onIssue(DetectionItems.FOCUS_LOSS, null)
+            // 无障碍事实归因(增强，优先于用量统计推测)：窗口快照中当前持有
+            // 焦点的外部窗口即覆盖者——本应用仍 RESUMED 而焦点在他人
+            accessibilityFocusAttribution()?.let { (pkg, isAppWindow) ->
+                if (isAppWindow) {
+                    onIssue(
+                        DetectionItems.FREEFORM_WINDOW,
+                        activity.getString(R.string.freeform_window_detail, pkg)
+                    )
+                } else {
+                    onIssue(DetectionItems.FLOATING_WINDOW, null)
+                }
+                return
+            }
             // 归因(见方法文档)：小窗优先(新鲜的其他应用)，悬浮窗兜底
             val stats = queryForegroundByEvents() + queryUsageStats()
             val freshOther = stats
@@ -199,6 +217,25 @@ class WindowReflectionDetector(private val activity: MainActivity) {
     }
 
     // ---------- 前台应用查询(顶层是否是自己) ----------
+
+    /**
+     * 无障碍事实归因(增强)：窗口快照中当前持有焦点的外部窗口——本应用仍
+     * RESUMED 而焦点在他人，该窗口即为覆盖本应用的窗口(正常应用切换会先
+     * onPause 使本检测前置条件失效，能到达此处说明对方以窗口形式共存)。
+     * - 其他应用的 TYPE_APPLICATION 窗口 → 自由小窗(详情携带包名，事实)；
+     * - SystemUI 瞬态(状态栏/侧边栏)或非应用窗口(输入法/放大部分叠加层等)
+     *   → 悬浮窗。
+     * 无障碍未开启或快照中无持焦点外部窗口时返回 null(退回用量统计推测)。
+     */
+    private fun accessibilityFocusAttribution(): Pair<String, Boolean>? {
+        val snapshot = EnhancementState.accessibilityInstance?.windowSnapshot().orEmpty()
+        val focused = snapshot.firstOrNull { it.isFocused && it.pkg != activity.packageName }
+            ?: return null
+        val pkg = focused.pkg ?: return null
+        val isAppWindow = focused.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
+                pkg != SYSTEM_UI_PACKAGE
+        return pkg to isAppWindow
+    }
 
     /**
      * 归因数据源 1(主)：UsageEvents 事件流。Activity 前台化

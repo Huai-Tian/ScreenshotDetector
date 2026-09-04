@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.database.ContentObserver
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
@@ -21,6 +22,7 @@ import android.os.Environment
 import android.os.FileObserver
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.Display
@@ -84,6 +86,19 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     // ========== Miracast(WFD) 状态广播接收器 ==========
     private var wifiDisplayStatusReceiver: BroadcastReceiver? = null
+
+    // ========== 录屏/投屏服务运行中检测(通知使用权增强) ==========
+    private var recordingServiceJob: Job? = null
+
+    /**
+     * 投屏持久授权查询缓存：全量包枚举 + 逐包 AppOps 查询代价高，
+     * 供录屏服务秒级轮询与授权检测 15s 轮询复用(能力面低频变化)
+     */
+    @Volatile
+    private var projectionConsentCache: List<String> = emptyList()
+
+    @Volatile
+    private var projectionConsentCacheAtMs = 0L
 
     // ========== 设备录音活动回调 ==========
     private var audioRecordingCallback: AudioManager.AudioRecordingCallback? = null
@@ -756,6 +771,12 @@ class DetectionFunctions(private val activity: MainActivity) {
         /** 录音来源推测的回看窗口(长窗口配合录音权限双条件过滤防误报) */
         private const val AUDIO_SUSPECT_LOOKBACK_MS = 5 * 60_000L
 
+        /** 录屏/投屏服务运行中检测的轮询间隔 */
+        private const val RECORDING_SERVICE_POLL_INTERVAL_MS = 1_000L
+
+        /** 投屏持久授权缓存有效期(能力面低频变化，避免秒级轮询重复全量枚举) */
+        private const val PROJECTION_CONSENT_CACHE_TTL_MS = 10_000L
+
         /** 可信呈现 bootstrap 超时：正常无遮挡启动 ~0.5s 内必收到 true 回调(服务端 375ms 重算 + 250ms 稳定阈值)，留足余量防首帧卡顿误报 */
         private const val TRUSTED_PRESENTATION_BOOTSTRAP_MS = 3_000L
 
@@ -866,7 +887,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopProjectionConsentDetection()
         projectionConsentJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
-                val granted = queryProjectionConsent()
+                val granted = cachedProjectionConsent()
                 if (granted.isNotEmpty()) {
                     // 详情 = 完整数量 + 最多 5 个包名(与无障碍详情同格式)
                     val detail = activity.getString(
@@ -886,6 +907,74 @@ class DetectionFunctions(private val activity: MainActivity) {
     fun stopProjectionConsentDetection() {
         projectionConsentJob?.cancel()
         projectionConsentJob = null
+    }
+
+    // ---------- 录屏/投屏服务运行中检测(通知使用权增强项) ----------
+
+    /**
+     * 常驻(ongoing)通知 × 虚拟显示器归属/投屏持久授权 交叉检测：
+     * - Android 14+ 强制 MediaProjection 前台服务常驻通知；
+     * - 进行中的三方录屏/投屏必然创建虚拟显示器(DisplayInfo.ownerPackageName
+     *   归属)或持有免询问投屏授权(project_media)；
+     * 两个独立事实同时成立才上报包名(只报事实，不做特征词推断，避免
+     * 音乐/下载等普通常驻通知误报)。通知使用权未开启时无信号，本项
+     * 静默(优雅降级，不影响其他检测项)。秒级轮询 + 注册即查(冷启动可检出)。
+     */
+    fun startRecordingServiceDetection(onIssue: (DetectionItems, String?) -> Unit) {
+        stopRecordingServiceDetection()
+        recordingServiceJob = CoroutineScope(Dispatchers.IO).launch {
+            while (isActive) {
+                val services = queryRecordingServices()
+                if (services.isNotEmpty()) {
+                    // 详情 = 完整数量 + 最多 5 个包名(与无障碍/投屏授权详情同格式)
+                    val detail = activity.getString(
+                        R.string.recording_service_detail,
+                        services.size,
+                        services.take(5).joinToString(", ")
+                    )
+                    withContext(Dispatchers.Main) {
+                        onIssue(DetectionItems.RECORDING_SERVICE, detail)
+                    }
+                }
+                delay(RECORDING_SERVICE_POLL_INTERVAL_MS.milliseconds)
+            }
+        }
+    }
+
+    fun stopRecordingServiceDetection() {
+        recordingServiceJob?.cancel()
+        recordingServiceJob = null
+    }
+
+    /** 交叉查询：常驻通知应用 ∩ (虚拟显示器归属 ∪ 投屏持久授权)，排除自身/SystemUI */
+    private fun queryRecordingServices(): List<String> = runCatching {
+        val ongoing = EnhancementState.notificationInstance?.ongoingPackages().orEmpty()
+        if (ongoing.isEmpty()) return emptyList()
+        val related = virtualDisplayOwners() + cachedProjectionConsent()
+        (ongoing intersect related)
+            .filter { it != activity.packageName && it != SYSTEM_UI_PACKAGE }
+            .sorted()
+    }.getOrDefault(emptyList())
+
+    /** 当前存在的虚拟显示器创建者包名集合(DisplayInfo 反射归因) */
+    private fun virtualDisplayOwners(): Set<String> {
+        val dm = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        return dm.displays
+            .filter { it.displayId != Display.DEFAULT_DISPLAY }
+            .mapNotNull { displayInfo(it.displayId) }
+            .mapNotNull { infoString(it, "ownerPackageName") }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    /** 带缓存的投屏持久授权查询(见缓存字段注释) */
+    private fun cachedProjectionConsent(): List<String> {
+        val now = SystemClock.elapsedRealtime()
+        if (now - projectionConsentCacheAtMs >= PROJECTION_CONSENT_CACHE_TTL_MS) {
+            projectionConsentCache = queryProjectionConsent()
+            projectionConsentCacheAtMs = now
+        }
+        return projectionConsentCache
     }
 
     private fun queryProjectionConsent(): List<String> = runCatching {
@@ -982,7 +1071,11 @@ class DetectionFunctions(private val activity: MainActivity) {
      * 推测录音来源应用：AOSP 匿名化剥离了录音者身份，精确归因无应用层路径
      * (getClientUid/getClientPackageName 为 @SystemApi + MODIFY_AUDIO_ROUTING
      * 签名权限；getOpsForPackage 的 op 运行状态查询也被 GET_APP_OPS_STATS
-     * 拦截，经 AOSP 源码核实)。推测链(按优先级)：
+     * 拦截，经 AOSP 源码核实)。候选源双路合并(按包名去重取最新时刻)：
+     * - 用量统计(需"使用情况访问权")：事件流 + 聚合值，可标记前台服务启动；
+     * - 无障碍事件流(需开启本应用无障碍)：TYPE_WINDOW_STATE_CHANGED 实时
+     *   窗口展示时刻，不依赖使用情况访问权——该权限未授予时推测仍有数据。
+     * 推测链(按优先级)：
      * 1. 排除系统流程性应用(桌面/系统设置/权限对话框宿主/SystemUI，包名
      *    动态解析)——它们夹在录音应用与检测器之间被"使用"，但不可能是
      *    录音者(实测 ColorOS 的系统设置持有 RECORD_AUDIO 权限，仅按麦克风
@@ -996,10 +1089,25 @@ class DetectionFunctions(private val activity: MainActivity) {
      */
     private fun suspectRecordingPackage(): String? {
         val excluded = systemFlowPackages() + activity.packageName
-        val candidates = queryRecentUsageCandidates().filter { it.pkg !in excluded }
+        val candidates = (queryRecentUsageCandidates() + queryAccessibilityCandidates())
+            .filter { it.pkg !in excluded }
+            .groupBy { it.pkg }
+            .map { (pkg, list) ->
+                UsageCandidate(
+                    pkg,
+                    list.maxOf { it.lastUsed },
+                    list.any { it.fgsStarted }
+                )
+            }
+            .sortedByDescending { it.lastUsed }
         candidates.filter { it.fgsStarted }.firstOrNull { isMicCapable(it.pkg) }?.let { return it.pkg }
         return candidates.firstOrNull { isMicCapable(it.pkg) }?.pkg
     }
+
+    /** 无障碍候选源：窗口展示事件流(回看窗口内)，见 suspectRecordingPackage 文档 */
+    private fun queryAccessibilityCandidates(): List<UsageCandidate> =
+        EnhancementState.windowEventsSnapshot(AUDIO_SUSPECT_LOOKBACK_MS)
+            .map { (pkg, at) -> UsageCandidate(pkg, at, false) }
 
     /**
      * 系统流程性应用包名(动态解析，跨 ROM 稳定)：桌面启动器(CATEGORY_HOME)、
@@ -1193,7 +1301,7 @@ class DetectionFunctions(private val activity: MainActivity) {
             if (!trusted && !isInBackground &&
                 windowReflectionDetector?.hasOwnOverlayingWindow() != true
             ) {
-                onIssue(DetectionItems.WINDOW_NOT_FULLY_PRESENTED, null)
+                reportNotFullyPresented(onIssue)
             }
         }
         val generation = trustedPresentationGeneration
@@ -1218,11 +1326,42 @@ class DetectionFunctions(private val activity: MainActivity) {
             if (!trustedPresentationCallbackSeen && !isInBackground &&
                 windowReflectionDetector?.hasOwnOverlayingWindow() != true
             ) {
-                onIssue(DetectionItems.WINDOW_NOT_FULLY_PRESENTED, null)
+                reportNotFullyPresented(onIssue)
             }
         }
         trustedPresentationBootstrap = bootstrap
         activity.window.decorView.postDelayed(bootstrap, TRUSTED_PRESENTATION_BOOTSTRAP_MS)
+    }
+
+    /**
+     * 上报窗口显示不完整(无障碍增强：附遮挡来源归因)。取窗口快照中位于
+     * 本应用顶层窗口之上且与其存在屏幕交集的最高层外部窗口作为遮挡者；
+     * 无障碍未开启或快照无匹配时无详情(退回原有行为)。
+     */
+    private fun reportNotFullyPresented(onIssue: (DetectionItems, String?) -> Unit) {
+        val detail = occluderPackage()?.let {
+            activity.getString(R.string.window_not_fully_presented_detail, it)
+        }
+        onIssue(DetectionItems.WINDOW_NOT_FULLY_PRESENTED, detail)
+    }
+
+    /**
+     * 遮挡来源包名：无障碍 getWindows 窗口快照中，层级高于本应用顶层窗口
+     * 且屏幕范围与其相交的最高层外部窗口(跨应用窗口归因——普通应用无法
+     * 枚举系统窗口，这是引入无障碍服务的核心价值之一)。
+     */
+    private fun occluderPackage(): String? {
+        val snapshot = EnhancementState.accessibilityInstance?.windowSnapshot().orEmpty()
+        if (snapshot.isEmpty()) return null
+        val ownTop = snapshot
+            .filter { it.pkg == activity.packageName }
+            .maxByOrNull { it.layer } ?: return null
+        return snapshot
+            .filter { !it.pkg.isNullOrBlank() && it.pkg != activity.packageName }
+            .filter { it.layer > ownTop.layer }
+            .filter { Rect.intersects(it.bounds, ownTop.bounds) }
+            .maxByOrNull { it.layer }
+            ?.pkg
     }
 
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
@@ -1285,6 +1424,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopExternalDisplayDetection()
         stopProjectionConsentDetection()
         stopAudioRecordingDetection()
+        stopRecordingServiceDetection()
         windowDetectionRefCount = 0
         teardownWindowDetection()
     }

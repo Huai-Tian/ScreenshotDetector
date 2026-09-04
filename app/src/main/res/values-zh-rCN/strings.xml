@@ -47,9 +47,22 @@
     <string name="permission_photos_video">照片和视频</string>
     <string name="permission_usage_access">使用情况</string>
     <string name="permission_app_list">应用列表</string>
+    <string name="permission_accessibility">无障碍服务</string>
+    <string name="permission_notification_access">通知使用权</string>
     <string name="permission_granted">已授权</string>
+    <string name="permission_enabled">已启用</string>
     <string name="permission_not_granted">未授权 · 点击前往设置</string>
+    <string name="permission_not_enabled">未启用 · 点击前往设置</string>
     <string name="permission_all_granted">全部权限已授权</string>
+    <!--检测增强服务(可选)-->
+    <string name="accessibility_service_label">检测增强（无障碍）</string>
+    <string name="accessibility_service_summary">实时窗口归因，增强检测能力</string>
+    <string name="accessibility_service_description">仅用于增强截屏行为检测：实时读取窗口包名与窗口状态变化事件，用于自由小窗归因、遮挡来源归因与录音来源推测。不读取任何窗口内容与个人数据。</string>
+    <string name="notification_listener_label">检测增强（通知）</string>
+    <!--检测增强项-->
+    <string name="recording_service_active">录屏/投屏服务运行中</string>
+    <string name="recording_service_detail">常驻(%1$d)：%2$s</string>
+    <string name="window_not_fully_presented_detail">遮挡来源：%1$s</string>
     <string name="more">更多</string>
     <string name="open_source">开放源代码</string>
     <string name="info">关于</string>
@@ -62,5 +75,6 @@
     <string name="agree_and_continue">同意并继续</string>
     <string name="disagree_and_exit">不同意并退出</string>
     <string name="license">许可证</string>
+    <string name="open_source_version">版本：%1$s</string>
     <string name="back">返回</string>
 </resources>

@@ -47,9 +47,22 @@
     <string name="permission_photos_video">Photos and videos</string>
     <string name="permission_usage_access">Usage access</string>
     <string name="permission_app_list">App list</string>
+    <string name="permission_accessibility">Accessibility service</string>
+    <string name="permission_notification_access">Notification access</string>
     <string name="permission_granted">Granted</string>
+    <string name="permission_enabled">Enabled</string>
     <string name="permission_not_granted">Not granted · tap to open Settings</string>
+    <string name="permission_not_enabled">Not enabled · tap to open Settings</string>
     <string name="permission_all_granted">All permissions granted</string>
+    <!--检测增强服务(可选)-->
+    <string name="accessibility_service_label">Detection enhancement (Accessibility)</string>
+    <string name="accessibility_service_summary">Real-time window attribution to enhance detection</string>
+    <string name="accessibility_service_description">Used only to enhance screen-capture behavior detection: reads window package names and window-state-change events in real time for freeform-window attribution, occlusion-source attribution, and audio-recording source inference. Window content and personal data are never read.</string>
+    <string name="notification_listener_label">Detection enhancement (Notifications)</string>
+    <!--检测增强项-->
+    <string name="recording_service_active">Recording/casting service running</string>
+    <string name="recording_service_detail">Ongoing (%1$d): %2$s</string>
+    <string name="window_not_fully_presented_detail">Occluded by: %1$s</string>
     <string name="more">More</string>
     <string name="open_source">Open Source</string>
     <string name="info">Info</string>
@@ -64,5 +77,6 @@
     <string name="disagree_and_exit">Disagree</string>
     <!--License-->
     <string name="license">License</string>
+    <string name="open_source_version">Version: %1$s</string>
     <string name="back">Back</string>
 </resources>

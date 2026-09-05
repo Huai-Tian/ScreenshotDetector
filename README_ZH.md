@@ -46,6 +46,9 @@
 - **媒体库监听**  
   通过 `ContentObserver` 监听媒体库变化：图片库识别新增截图文件，视频库识别录屏特征命名（screenrecord / 屏幕录制等，覆盖 AOSP 与中文 ROM 命名）的新增录屏视频；注册时回查 15 秒窗口，覆盖打开应用前刚发生的行为，卡片附写入者归因（`owner_package_name` 隐藏列，跨应用可见性依 ROM 而定可降级）
 
+- **Shell/ADB 通道截图检测**  
+  检测经 adb shell 通道产出的截图：图片库行的写入者归因为 `com.android.shell`（adb shell 的 uid 归属包）即 shell 通道捕获（如 `adb shell screencap`）的事实记录——写入位置与文件名不受约束，故扫描不限截图特征命名。按键截屏由 SystemUI 写入、三方应用以自身包名写入，写入者身份即可区分通道；卡片附文件名
+
 - **设备环境安全检测**  
   检测开发者选项、USB 调试、无线调试（隐藏键 `adb_wifi_enabled`）、模拟辅助显示（隐藏键 `overlay_display_devices`）、无线显示开关（隐藏键 `wifi_display_on`）、无障碍模式（`getEnabledAccessibilityServiceList` 可跨应用枚举已启用的无障碍服务，卡片显示完整数量与最多 5 个应用包名，排除本应用自身的增强服务）等风险项。无障碍状态以 200ms 轮询实时刷新（覆盖后台开关与服务集合变化，卡片随当前状态出现/更新/移除）
 
@@ -119,7 +122,7 @@
 - `DisplayManager`：检测投屏状态与虚拟显示器（外接显示器检测按 `DisplayInfo.type` 仅计入有线外接，虚拟/Miracast/模拟显示器分别归入对应检测项）
 - `MediaProjection`：检测屏幕投影服务状态
 - `MediaRouter`：检测外部显示路由
-- `ContentObserver` + `MediaStore`：检测媒体库新增截图（图片）/录屏视频（视频库按录屏特征命名匹配），查询 Bundle 携带 `MATCH_PENDING` 纳入写入瞬间的 pending 行使检出提前数秒，投影含 `owner_package_name` 隐藏列做写入者归因
+- `ContentObserver` + `MediaStore`：检测媒体库新增截图（图片）/录屏视频（视频库按录屏特征命名匹配），查询 Bundle 携带 `MATCH_PENDING` 纳入写入瞬间的 pending 行使检出提前数秒，投影含 `owner_package_name` 隐藏列做写入者归因；图片侧归因为 `com.android.shell` 的行独立上报 Shell/ADB 截图卡片（shell 写入位置与命名不受限，扫描不限截图特征词）
 - `FileObserver`：检测截图/录屏目录文件创建/移动（`Pictures/Screenshots`、`Movies/ScreenRecords`、`Movies` 多目录）
 - `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务（`getEnabledAccessibilityServiceList` 无需权限、跨应用可见且为实时 Binder 查询，卡片显示已启用服务的包名；无障碍状态经 200ms 轮询前后台即时同步，该项为实时状态——服务全部停用后卡片自动移除，其余环境项保持粘性以防关闭即抹除痕迹）
 - `Settings.Secure` / `RoleManager`：读屏者通道检测——三方输入法（`DEFAULT_INPUT_METHOD`）、三方自动填充（`autofill_service` 隐藏键）、三方语音交互（`voice_interaction_service`，SDK 37.1 起移出公开 stub 改硬编码值）、三方默认助手（`getRoleHolders`，SDK 37.1 起移出公开 stub 改反射，`QUERY_ROLE_HOLDERS` 权限）

@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.os.Process
 import android.provider.MediaStore
 import android.provider.Settings
@@ -21,7 +20,6 @@ import android.view.accessibility.AccessibilityManager
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import detect.screenshot.detection.DetectionItems
-import java.io.File
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
@@ -461,13 +459,18 @@ object Auxiliary {
         false
     }
 
-    fun isScreenshotFakerPresent(context: Context): Boolean {
-        try {
+    /**
+     * ScreenshotFaker 特征检查：返回命中的特征来源(安装包检测——包名
+     * fake.screenshot 的应用已安装，返回其包名)，未命中返回 null。
+     * 旧版的 Pictures/ScreenshotFaker 目录特征已移除(新版 Faker 不再
+     * 使用该目录，残留目录会造成误报)。
+     */
+    fun screenshotFakerTrace(context: Context): String? {
+        return try {
             context.packageManager.getPackageInfo("fake.screenshot", 0)
-            return true
+            "fake.screenshot"
         } catch (_: PackageManager.NameNotFoundException) {
+            null
         }
-        val dir = File(Environment.getExternalStorageDirectory(), "Pictures/ScreenshotFaker")
-        return dir.exists() && dir.isDirectory
     }
 }

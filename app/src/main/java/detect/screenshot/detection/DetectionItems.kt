@@ -14,9 +14,10 @@ import detect.screenshot.R
  * 分类语义(数据层标记，UI 呈现由调用方决定)：
  * - 确定性(默认)：捕获/干扰事件本身已发生——截屏、录屏、投屏、录音活动、
  *   切屏、小窗、遮挡等可观测事实，"检测到 = 行为发生"；
- * - 可疑痕迹(isSuspicious = true)：风险条件与能力面——环境开关、已启用的
- *   读屏者通道、持有的特殊授权、伪造工具特征等，"检测到 = 存在可被利用的
- *   通道/条件"，不直接证明捕获行为发生过。
+ * - 潜在风险(isSuspicious = true，弹层标题「潜在风险」)：风险条件与
+ *   能力面——环境开关、已启用的读屏者通道、持有的特殊授权、伪造工具
+ *   特征等，"检测到 = 存在可被利用的通道/条件"，不直接证明捕获行为
+ *   发生过。
  *
  * 所有检测项默认全部开启，调用方(HomeCompose)遍历 [entries] 即可
  * 完成检测启停，无需逐项配置。
@@ -29,7 +30,7 @@ import detect.screenshot.R
 @Immutable
 enum class DetectionItems(
     @StringRes val labelRes: Int,
-    /** 可疑痕迹类(能力面/环境条件，非确定发生的捕获事件)；默认为确定性事件 */
+    /** 潜在风险类(能力面/环境条件，非确定发生的捕获事件)；默认为确定性事件 */
     val isSuspicious: Boolean = false,
     val start: DetectionFunctions.(onIssue: (DetectionItems, String?) -> Unit) -> Unit = { },
     val stop: DetectionFunctions.() -> Unit = { }
@@ -85,7 +86,7 @@ enum class DetectionItems(
         stop = { stopVideoMediaLibraryDetection() }
     ),
 
-    // ---------- 可疑痕迹：免询问能力面 ----------
+    // ---------- 潜在风险：免询问能力面 ----------
     MEDIA_PROJECTION_CONSENT(
         R.string.projection_consent,
         isSuspicious = true,
@@ -111,7 +112,7 @@ enum class DetectionItems(
         stop = { stopThirdPartyCapabilityDetection() }
     ),
 
-    // ---------- 可疑痕迹：环境风险 ----------
+    // ---------- 潜在风险：环境风险 ----------
     ADB_ENABLED(
         R.string.adb_enabled,
         isSuspicious = true,
@@ -125,7 +126,7 @@ enum class DetectionItems(
     WIRELESS_DISPLAY_ON(R.string.wireless_display_enabled, isSuspicious = true),
     DOCK_CONNECTED(R.string.dock_connected, isSuspicious = true),
 
-    // ---------- 可疑痕迹：读屏者通道 ----------
+    // ---------- 潜在风险：读屏者通道 ----------
     INPUT_METHOD(R.string.third_party_input_method, isSuspicious = true),
     AUTOFILL_SERVICE(R.string.third_party_autofill, isSuspicious = true),
     VOICE_INTERACTION(R.string.third_party_voice_interaction, isSuspicious = true),
@@ -178,11 +179,13 @@ enum class DetectionItems(
         stop = { stopWindowDetection() }
     ),
 
-    // ---------- 可疑痕迹：伪造工具 ----------
+    // ---------- 潜在风险：伪造工具 ----------
     SCREENSHOT_FAKER(
         R.string.ScreenshotFaker,
         isSuspicious = true,
-        start = { onIssue -> startScreenshotFakerDetection { onIssue(SCREENSHOT_FAKER, null) } },
+        start = { onIssue -> startScreenshotFakerDetection { pkg ->
+            onIssue(SCREENSHOT_FAKER, pkg?.let { describeFakerTrace(it) })
+        } },
         stop = { stopScreenshotFakerDetection() }
     );
 }

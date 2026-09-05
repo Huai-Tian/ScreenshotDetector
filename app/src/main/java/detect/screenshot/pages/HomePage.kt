@@ -101,10 +101,10 @@ fun HomeCompose(
     var info by remember { mutableStateOf(false) }
     var openSource by remember { mutableStateOf(false) }
 
-    // ========== 可疑痕迹弹层(顶栏眼睛按钮，仅有命中时可见) ==========
+    // ========== 潜在风险弹层(顶栏眼睛按钮，仅有命中时可见) ==========
     var suspiciousExpanded by remember { mutableStateOf(false) }
 
-    /** 上报路由：可疑痕迹类入独立容器(眼睛按钮展示)，确定性事件入主列表 */
+    /** 上报路由：潜在风险类入独立容器(眼睛按钮展示)，确定性事件入主列表 */
     fun routeIssue(item: DetectionItems, detail: String?) {
         if (item.isSuspicious) suspicions[item] = detail else issues[item] = detail
     }
@@ -190,13 +190,13 @@ fun HomeCompose(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
-                    // 可疑痕迹入口(眼睛)：仅有可疑命中时可见，点击弹层展示全部
-                    // 可疑痕迹卡片，不占用主异常列表(见 DetectionItems.isSuspicious)
+                    // 潜在风险入口(眼睛)：仅有风险命中时可见，点击弹层展示全部
+                    // 潜在风险卡片，不占用主异常列表(见 DetectionItems.isSuspicious)
                     if (suspicions.isNotEmpty()) {
                         IconButton(onClick = { suspiciousExpanded = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.Visibility,
-                                contentDescription = stringResource(R.string.suspicious_findings)
+                                contentDescription = stringResource(R.string.potential_risks)
                             )
                         }
                     }
@@ -479,7 +479,7 @@ fun HomeCompose(
                         .padding(20.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.suspicious_findings),
+                        text = stringResource(R.string.potential_risks),
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )

@@ -49,10 +49,10 @@ It operates at the application layer, detecting screen capture events via system
 - **Device environment security checks**  
   Detects developer options, USB debugging, wireless debugging (hidden key `adb_wifi_enabled`), simulated secondary display (hidden key `overlay_display_devices`), wireless display toggle (hidden key `wifi_display_on`), Accessibility mode (`getEnabledAccessibilityServiceList` enumerates enabled accessibility services cross-app; the card shows the full count and up to 5 package names, excluding this app's own enhancement service), and other risk indicators. The accessibility status refreshes in real time via 200ms polling (covering background toggles and service-set changes; the card appears/updates/removes with the current state)
 
-- **Two-channel presentation: confirmed events vs. suspicious traces**  
-  Detection items are semantically classified: **confirmed events** (screenshots, recording, casting, screen switching, mini windows, and other observable facts — "detected = it happened") go to the main issue list; **suspicious traces** (environment toggles, screen-reader channels, unattended consents, forgery-tool traces — capability surfaces and conditions, "detected = an exploitable channel exists", not proof that any capture happened) no longer mix into the main list. They are shown in a dedicated dialog behind an eye icon to the left of the permission button in the top bar — the icon only appears when at least one suspicious finding is present
+- **Two-channel presentation: confirmed events vs. potential risks**  
+  Detection items are semantically classified: **confirmed events** (screenshots, recording, casting, screen switching, mini windows, and other observable facts — "detected = it happened") go to the main issue list; **potential risks** (environment toggles, screen-reader channels, unattended consents, forgery-tool traces — capability surfaces and conditions, "detected = an exploitable channel exists", not proof that any capture happened) no longer mix into the main list. They are shown in a dedicated dialog behind an eye icon to the left of the permission button in the top bar — the icon only appears when at least one potential risk is present
 
-- **Third-party capability-surface checks** (suspicious traces)  
+- **Third-party capability-surface checks** (potential risks)  
   Detects third-party apps with notification access enabled (can read all notifications), apps with a screen-capture channel (manifest declaring `FOREGROUND_SERVICE_MEDIA_PROJECTION` — mandatory for targetSdk 34+ recording/casting apps), and apps that can draw overlays (holding the `SYSTEM_ALERT_WINDOW` special grant, judged by AppOps `MODE_ALLOWED`). Cards show the full count and up to 5 package names; capability surface only — it does not mean a capture is happening
 
 - **Screen-reader channel checks**  
@@ -94,7 +94,7 @@ It operates at the application layer, detecting screen capture events via system
   Detects the app's window falling out of the trusted presentation state (the actually rendered pixel fraction dropping below the threshold) via `TrustedPresentationListener` — triggered by external window occlusion, system overlays, gesture-navigation exit animations, etc. The server only fires callbacks on state transitions (a window occluded from its very first frame never transitions, so no callback ever fires); a bootstrap timeout reports "untrusted since launch" when no callback arrives after registration. With the Accessibility service enabled, the card gains an occlusion-source attribution: the highest-layer external window that overlaps this app's top window ("Occluded by: package")
 
 - **ScreenshotFaker feature detection**  
-  Detects whether ScreenshotFaker‑related traces exist on the device
+  Detects whether ScreenshotFaker exists on the device (installed package `fake.screenshot`); the card shows the trace source. The legacy `Pictures/ScreenshotFaker` folder check has been removed (newer Faker versions no longer use that directory)
 
 - **More features coming soon...**
 

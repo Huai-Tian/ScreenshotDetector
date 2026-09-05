@@ -76,12 +76,13 @@
     <string name="current_service_detail">Current: %1$s</string>
     <string name="wfd_available_detail">Available receivers: %1$s</string>
     <string name="dock_connected">Dock / desktop mode active</string>
-    <!--可疑痕迹(能力面/环境条件，非确定发生的捕获事件)-->
-    <string name="suspicious_findings">Suspicious findings</string>
+    <!--潜在风险(能力面/环境条件，非确定发生的捕获事件)-->
+    <string name="potential_risks">Potential risks</string>
     <string name="notification_listener_apps">Apps with notification access</string>
     <string name="capture_channel_apps">Apps with screen-capture channel</string>
     <string name="overlay_capable_apps">Apps that can draw overlays</string>
     <string name="third_party_apps_detail">Found (%1$d): %2$s</string>
+    <string name="screenshot_faker_trace">Installed: %1$s</string>
     <string name="more">More</string>
     <string name="open_source">Open Source</string>
     <string name="info">Info</string>

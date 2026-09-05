@@ -250,6 +250,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     fun describeMediaOwner(owner: String): String =
         activity.getString(R.string.media_owner_detail, owner)
 
+    /** Faker 特征来源详情行(如"安装包：fake.screenshot") */
+    fun describeFakerTrace(pkg: String): String =
+        activity.getString(R.string.screenshot_faker_trace, pkg)
+
     // ---------- 拦截触摸事件，检测悬浮窗遮挡 ----------
     fun dispatchTouchEvent(ev: MotionEvent) {
         var obscured = (ev.flags and MotionEvent.FLAG_WINDOW_IS_OBSCURED) != 0
@@ -982,14 +986,14 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     // ---------- ScreenshotFaker检测 ----------
-    fun startScreenshotFakerDetection(onDetected: () -> Unit) {
+    fun startScreenshotFakerDetection(onDetected: (String?) -> Unit) {
         stopScreenshotFakerDetection()
         screenshotFakerCheckJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
-                val present = Auxiliary.isScreenshotFakerPresent(activity)
-                if (present) {
+                val trace = Auxiliary.screenshotFakerTrace(activity)
+                if (trace != null) {
                     withContext(Dispatchers.Main) {
-                        onDetected()
+                        onDetected(trace)
                     }
                 }
                 delay(5000.milliseconds)
@@ -1126,7 +1130,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         recordingServiceJob = null
     }
 
-    // ---------- 三方能力面检测(通知监听/截屏通道/悬浮窗授权，可疑痕迹类) ----------
+    // ---------- 三方能力面检测(通知监听/截屏通道/悬浮窗授权，潜在风险类) ----------
 
     /** 引用计数：三项共用同一轮询(NOTIFICATION_LISTENER/CAPTURE_CHANNEL/OVERLAY_CAPABLE) */
     private var capabilityDetectionRefCount = 0
@@ -1140,7 +1144,7 @@ class DetectionFunctions(private val activity: MainActivity) {
      * 低频变化)。三项的 start 均路由至此，调用方(HomeCompose)对全部检测项
      * 注入同一 onIssue lambda，故首个注册的回调即可正确路由三项上报
      * (与 startWindowDetection 的多枚举共用模式一致)。均为能力面信号：
-     * 通道存在 ≠ 行为发生，故归类"可疑痕迹"。
+     * 通道存在 ≠ 行为发生，故归类"潜在风险"。
      */
     fun startThirdPartyCapabilityDetection(onIssue: (DetectionItems, String?) -> Unit) {
         capabilityDetectionRefCount++

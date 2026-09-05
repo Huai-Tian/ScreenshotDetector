@@ -23,6 +23,9 @@ import detect.screenshot.detection.DetectionItems
 
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
+/** adb shell 的 uid 归属包名(MediaProvider 写入者归因)：screencap 等命令通道 */
+private const val SHELL_PACKAGE = "com.android.shell"
+
 /**
  * android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION(API 34 引入的
  * normal 权限，编译期硬编码字符串以兼容低版本 SDK)：targetSdk 34+ 的
@@ -94,34 +97,59 @@ object Auxiliary {
     }
 
     /**
-     * 回看窗口内新增截图检查：文件名/相对路径含 screenshot 特征即命中，
-     * 返回写入者包名(归因不可用时 null，见 mediaProjection 注释)。
+     * 回看窗口内新增图片检查(两路信号，任一命中才回调)：
+     * - 截图特征：文件名/相对路径含 screenshot 即命中(featureOwner 为最新
+     *   特征行的写入者，归因不可用时 null，见 mediaProjection 注释)；
+     * - Shell 通道：写入者 owner_package_name 为 com.android.shell(adb
+     *   shell 的 uid 归属包；screencap 可写任意位置任意名，不受特征词
+     *   约束)即命中(shellShot 为该行文件名)。
+     * 查询不按特征词过滤(Shell 写入位置不受限)，两路判定均在代码侧完成；
+     * 行按 DATE_ADDED 降序，首个特征行即最新一行(与旧版取首行为 owner 等价)。
+     *
+     * @param notBeforeSec 重置水位线(秒)：仅回查 DATE_ADDED 晚于该时刻的
+     *   证据，防止用户"重置检测结果"后 15s 回看窗口内的旧截图被重新报出
+     *   (媒体扫描器对旧文件的后续更新会持续触发 onChange)；0 = 不限制
      */
-    fun checkForScreenshot(contentResolver: ContentResolver, onDetected: (owner: String?) -> Unit) {
-        val timeThreshold = System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD
-        val name = "LOWER(${MediaStore.MediaColumns.DISPLAY_NAME})"
-        val path = "LOWER(${MediaStore.MediaColumns.RELATIVE_PATH})"
-        val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ? AND (" +
-                "$name LIKE ? OR $path LIKE ?)"
-        val selectionArgs = arrayOf(
-            timeThreshold.toString(),
-            "%screenshot%",
-            "%screenshots%"
+    fun checkForScreenshot(
+        contentResolver: ContentResolver,
+        notBeforeSec: Long,
+        onDetected: (featureHit: Boolean, featureOwner: String?, shellShot: String?) -> Unit
+    ) {
+        val timeThreshold = maxOf(
+            System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD,
+            notBeforeSec
         )
+        val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ?"
+        val selectionArgs = arrayOf(timeThreshold.toString())
         val cursor = contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             mediaProjection,
             mediaQueryBundle(selection, selectionArgs),
             null
         )
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val dateAdded =
-                    it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED))
-                if (System.currentTimeMillis() / 1000 - dateAdded <= SCREENSHOT_TIME_THRESHOLD) {
-                    onDetected(ownerOf(it))
+        if (cursor == null) return
+        cursor.use {
+            val nameIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val pathIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+            val dateIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+            var featureHit = false
+            var featureOwner: String? = null
+            var shellShot: String? = null
+            while (it.moveToNext()) {
+                if (it.getLong(dateIdx) <= timeThreshold) continue
+                if (shellShot == null && ownerOf(it) == SHELL_PACKAGE) {
+                    shellShot = it.getString(nameIdx)
+                }
+                if (!featureHit) {
+                    val name = it.getString(nameIdx)?.lowercase().orEmpty()
+                    val path = it.getString(pathIdx)?.lowercase().orEmpty()
+                    if (name.contains("screenshot") || path.contains("screenshots")) {
+                        featureHit = true
+                        featureOwner = ownerOf(it)
+                    }
                 }
             }
+            if (featureHit || shellShot != null) onDetected(featureHit, featureOwner, shellShot)
         }
     }
 
@@ -129,12 +157,17 @@ object Auxiliary {
      * 回看窗口内新增录屏视频检查：文件名/相对路径命中录屏特征词
      * (screenrecord / screen record / screen_record / 屏幕录制 / 录屏，
      * 覆盖 AOSP 与中文 ROM 命名)。返回写入者包名(同上，归因可降级)。
+     * [notBeforeSec] 为重置水位线(秒)，语义见 [checkForScreenshot]。
      */
     fun checkForScreenRecordingVideo(
         contentResolver: ContentResolver,
+        notBeforeSec: Long,
         onDetected: (owner: String?) -> Unit
     ) {
-        val timeThreshold = System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD
+        val timeThreshold = maxOf(
+            System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD,
+            notBeforeSec
+        )
         val name = "LOWER(${MediaStore.MediaColumns.DISPLAY_NAME})"
         val path = "LOWER(${MediaStore.MediaColumns.RELATIVE_PATH})"
         val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ? AND (" +
@@ -160,7 +193,7 @@ object Auxiliary {
             if (it.moveToFirst()) {
                 val dateAdded =
                     it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED))
-                if (System.currentTimeMillis() / 1000 - dateAdded <= SCREENSHOT_TIME_THRESHOLD) {
+                if (dateAdded > timeThreshold) {
                     onDetected(ownerOf(it))
                 }
             }

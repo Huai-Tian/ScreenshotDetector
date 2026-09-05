@@ -73,9 +73,12 @@ enum class DetectionItems(
     ),
     MEDIA_LIBRARY(
         R.string.media_library_changed,
-        start = { onIssue -> startMediaLibraryDetection { owner ->
-            onIssue(MEDIA_LIBRARY, owner?.let { describeMediaOwner(it) })
-        } },
+        start = { onIssue -> startMediaLibraryDetection(onIssue) },
+        stop = { stopMediaLibraryDetection() }
+    ),
+    SHELL_SCREENSHOT(
+        R.string.shell_screenshot,
+        start = { onIssue -> startMediaLibraryDetection(onIssue) },
         stop = { stopMediaLibraryDetection() }
     ),
     VIDEO_MEDIA_LIBRARY(

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
 import android.os.PowerManager
 import android.view.View
 import android.view.accessibility.AccessibilityWindowInfo
@@ -57,6 +58,22 @@ class WindowReflectionDetector(private val activity: MainActivity) {
          */
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
+
+    /**
+     * 桌面(launcher)包名集合(CATEGORY_HOME 动态解析，惰性缓存一次)：
+     * 回桌面过渡期间 launcher 持有焦点/被记为最新使用，但它不是覆盖本
+     * 应用的小窗——归因时排除，过渡本身由切屏检测负责(见 [checkFocusProbe]
+     * 的过渡归位)。解析失败时为空集(退回不排除的旧行为)。
+     */
+    private val homePackages: Set<String> by lazy {
+        runCatching {
+            activity.packageManager.queryIntentActivities(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0
+            ).mapNotNull { it.activityInfo?.packageName }.toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    private fun isHomePackage(pkg: String): Boolean = pkg in homePackages
 
     private var unfocusedPolls = 0
     /** 是否曾获得过窗口焦点(用于排除启动瞬态，见 [checkFocusProbe]) */
@@ -134,7 +151,15 @@ class WindowReflectionDetector(private val activity: MainActivity) {
      * "曾获得过焦点"开始；若从未获得过焦点(悬浮窗在启动前就抢走焦点)，
      * 采用更高的阈值以排除瞬态。
      *
-     * 超过阈值后按用量统计归因(小窗优先，悬浮窗兜底)：
+     * 超过阈值后按归因来源分派(小窗优先，悬浮窗兜底)：
+     * - 覆盖者是桌面 launcher(无障碍快照持焦点窗口为 launcher，或用量
+     *   统计显示本应用失焦后最近被使用的是 launcher)：回桌面过渡动画
+     *   (划向桌面时本应用仍 RESUMED 而焦点/前台已交给 launcher，真正
+     *   回到桌面会先 onPause)——归位计数不上报，离开前台由切屏检测
+     *   负责，launcher 也不是覆盖本应用的小窗；
+     * - 无障碍快照中持焦点的外部窗口：TYPE_APPLICATION → 自由小窗
+     *   (事实归因，详情携带包名)；SystemUI 瞬态或非应用窗口(输入法/
+     *   放大部分叠加层等) → 悬浮窗；
      * - 存在"新鲜的其他应用"(最近前台化/使用时刻晚于本应用最后一次
      *   持有焦点，即失焦之后才被使用)：本应用仍 RESUMED 而焦点在他人
      *   ——正常应用切换必先 onPause 使本过滤失效，能到达此处说明对方
@@ -176,11 +201,18 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         unfocusedPolls++
         val threshold = if (focusEverGained) FOCUS_LOSS_THRESHOLD else FOCUS_LOSS_THRESHOLD_NEVER
         if (unfocusedPolls >= threshold) {
-            // 独立信号：焦点被抢占
-            onIssue(DetectionItems.FOCUS_LOSS, null)
             // 无障碍事实归因(增强，优先于用量统计推测)：窗口快照中当前持有
             // 焦点的外部窗口即覆盖者——本应用仍 RESUMED 而焦点在他人
             accessibilityFocusAttribution()?.let { (pkg, isAppWindow) ->
+                if (isHomePackage(pkg)) {
+                    // 回桌面过渡：launcher 持焦点且本应用仍 RESUMED 仅见于
+                    // 划向桌面的过渡动画(真正回到桌面会先 onPause)——归位
+                    // 计数、不上报，离开前台由切屏检测负责，并非窗口抢占
+                    unfocusedPolls = 0
+                    return
+                }
+                // 独立信号：焦点被抢占
+                onIssue(DetectionItems.FOCUS_LOSS, null)
                 if (isAppWindow) {
                     onIssue(
                         DetectionItems.FREEFORM_WINDOW,
@@ -193,10 +225,26 @@ class WindowReflectionDetector(private val activity: MainActivity) {
             }
             // 归因(见方法文档)：小窗优先(新鲜的其他应用)，悬浮窗兜底
             val stats = queryForegroundByEvents() + queryUsageStats()
+            // 回桌面过渡(见上)：本应用失焦之后被使用的他人应用是 launcher
+            // (用量统计回看窗口内最近被使用)时同样归位不上报
+            val topOther = stats
+                .filter { it.first != activity.packageName }
+                .maxByOrNull { it.second }
+            if (topOther != null && isHomePackage(topOther.first) &&
+                topOther.second > lastFocusHeldMs
+            ) {
+                unfocusedPolls = 0
+                return
+            }
             val freshOther = stats
-                .filter { it.first != activity.packageName && it.first != SYSTEM_UI_PACKAGE }
+                .filter {
+                    it.first != activity.packageName && it.first != SYSTEM_UI_PACKAGE &&
+                            !isHomePackage(it.first)
+                }
                 .filter { it.second > lastFocusHeldMs }
                 .maxByOrNull { it.second }
+            // 独立信号：焦点被抢占
+            onIssue(DetectionItems.FOCUS_LOSS, null)
             when {
                 freshOther != null -> {
                     onIssue(

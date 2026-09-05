@@ -66,6 +66,8 @@
     <string name="accessibility_overlay">存在无障碍悬浮窗</string>
     <string name="accessibility_overlay_detail">来源：%1$s</string>
     <string name="video_media_library">录屏视频落库</string>
+    <string name="shell_screenshot">Shell/ADB 通道截图</string>
+    <string name="shell_screenshot_detail">文件：%1$s（写入者 com.android.shell，通常为 adb screencap 等命令产生）</string>
     <string name="media_owner_detail">写入者：%1$s</string>
     <string name="mic_muted_suffix">（麦克风已静音）</string>
     <string name="hdmi_audio_suffix">（音频路由：HDMI）</string>

@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.ContentResolver
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.Rect
@@ -69,7 +70,7 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var mediaRouter: MediaRouter? = null
     private var mediaRouterCallback: MediaRouter.Callback? = null
     private var mediaLibraryObserver: ContentObserver? = null
-    private var pendingMediaLibraryCallback: ((String?) -> Unit)? = null
+    private var pendingMediaLibraryCallback: ((DetectionItems, String?) -> Unit)? = null
     private var videoMediaLibraryObserver: ContentObserver? = null
     private var pendingVideoLibraryCallback: ((String?) -> Unit)? = null
     private var fileObserver: FileObserver? = null
@@ -249,6 +250,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     /** 媒体写入者归因详情行(图/视频共用) */
     fun describeMediaOwner(owner: String): String =
         activity.getString(R.string.media_owner_detail, owner)
+
+    /** Shell/ADB 截图详情行(如"文件：Screenshot.png") */
+    fun describeShellShot(fileName: String): String =
+        activity.getString(R.string.shell_screenshot_detail, fileName)
 
     /** Faker 特征来源详情行(如"安装包：fake.screenshot") */
     fun describeFakerTrace(pkg: String): String =
@@ -611,17 +616,51 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     // ---------- 媒体库监听(图片=截图 / 视频=录屏) ----------
-    fun startMediaLibraryDetection(onDetected: (owner: String?) -> Unit) {
+
+    /**
+     * 重置水位线(墙钟 ms)：用户点击"重置检测结果"时记录，媒体库回看查询
+     * 与文件监听只报晚于该时刻的新证据，防止刚被清除的旧截图/录屏在
+     * 回看窗口内被重新报出(媒体扫描器对旧文件的 pending→settled 重命名
+     * 等后续更新会持续触发 onChange/FileObserver)。0 = 不限制(冷启动
+     * 保留 15s 回查，覆盖打开应用前的行为)。
+     */
+    private var resetWatermarkMs = 0L
+
+    /** 标记重置：此后仅上报重置时刻之后落盘的新证据(见 [resetWatermarkMs]) */
+    fun markReset() {
+        resetWatermarkMs = System.currentTimeMillis()
+    }
+
+    /**
+     * 图片媒体库监听(截图落库 + Shell 通道写入双信号，确定性事件)：
+     * 监听 MediaStore.Images 新增，回看窗口内两路信号由
+     * [Auxiliary.checkForScreenshot] 一次扫描产出并分别上报——
+     * - 截图特征命名命中 → MEDIA_LIBRARY(详情附写入者归因)；
+     * - 写入者归因为 com.android.shell(adb shell 的 uid 归属包，如
+     *   adb screencap；写入位置/命名不受特征词约束) → SHELL_SCREENSHOT
+     *   独立卡片。写入者身份即通道事实，不做跨通道交叉推断(按键截屏由
+     *   SystemUI 写入、三方应用由自身包名写入，天然区分)。
+     * 事件回调 + 注册时冷启动回查；未授权时挂起回调并申请权限，落地后
+     * 由权限回调补启。MEDIA_LIBRARY 与 SHELL_SCREENSHOT 共用本监听
+     * (与 startWindowDetection 的多枚举共用模式一致)：幂等注册，路由在
+     * 本函数内部完成——首个注入的 onIssue(HomeCompose 对全部检测项注入
+     * 同一路由 lambda)即代表整组，后到的 start 调用直接返回。
+     */
+    fun startMediaLibraryDetection(onIssue: (DetectionItems, String?) -> Unit) {
         if (!Auxiliary.hasImagesPermission(activity)) {
-            pendingMediaLibraryCallback = onDetected
-            requestMediaPermissions(fromPanel = false)
+            // 两个共用检测项先后到达会重复走此分支：仅首个发起权限申请，
+            // pending 覆盖无害(闭包等价——均为纯转发路由 lambda)
+            if (pendingMediaLibraryCallback == null) {
+                pendingMediaLibraryCallback = onIssue
+                requestMediaPermissions(fromPanel = false)
+            }
             return
         }
-        stopMediaLibraryDetection()
+        if (mediaLibraryObserver != null) return
         val contentResolver = activity.contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                Auxiliary.checkForScreenshot(contentResolver, onDetected)
+                reportScreenshotSignals(contentResolver, onIssue)
             }
         }
         mediaLibraryObserver = observer
@@ -632,7 +671,23 @@ class DetectionFunctions(private val activity: MainActivity) {
         )
         // 冷启动回查：ContentObserver 只覆盖注册后的变化，注册时补查一次
         // (checkForScreenshot 自带 15s 回看窗口)，覆盖"打开本应用前 ≤15s 的截图"
-        Auxiliary.checkForScreenshot(contentResolver, onDetected)
+        reportScreenshotSignals(contentResolver, onIssue)
+    }
+
+    /** 图片库双信号路由(见 startMediaLibraryDetection 文档) */
+    private fun reportScreenshotSignals(
+        contentResolver: ContentResolver,
+        onIssue: (DetectionItems, String?) -> Unit
+    ) {
+        Auxiliary.checkForScreenshot(
+            contentResolver,
+            resetWatermarkMs / 1000
+        ) { featureHit, featureOwner, shellShot ->
+            if (featureHit) {
+                onIssue(DetectionItems.MEDIA_LIBRARY, featureOwner?.let { describeMediaOwner(it) })
+            }
+            shellShot?.let { onIssue(DetectionItems.SHELL_SCREENSHOT, describeShellShot(it)) }
+        }
     }
 
     fun stopMediaLibraryDetection() {
@@ -658,7 +713,11 @@ class DetectionFunctions(private val activity: MainActivity) {
         val contentResolver = activity.contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                Auxiliary.checkForScreenRecordingVideo(contentResolver, onDetected)
+                Auxiliary.checkForScreenRecordingVideo(
+                    contentResolver,
+                    resetWatermarkMs / 1000,
+                    onDetected
+                )
             }
         }
         videoMediaLibraryObserver = observer
@@ -667,7 +726,11 @@ class DetectionFunctions(private val activity: MainActivity) {
             true,
             observer
         )
-        Auxiliary.checkForScreenRecordingVideo(contentResolver, onDetected)
+        Auxiliary.checkForScreenRecordingVideo(
+            contentResolver,
+            resetWatermarkMs / 1000,
+            onDetected
+        )
     }
 
     fun stopVideoMediaLibraryDetection() {
@@ -682,6 +745,9 @@ class DetectionFunctions(private val activity: MainActivity) {
      * 截图/录屏目录文件监听：Pictures/Screenshots(截图，AOSP) +
      * Movies/ScreenRecords(录屏，AOSP) + Movies(三方录屏常见落点)。
      * 录屏目录是即时文件信号——先于媒体库扫描落库数秒。
+     * 重置水位线(见 [resetWatermarkMs])：事件与冷启动回查均只报
+     * lastModified 晚于水位线的文件——重置后媒体扫描器对旧截图的
+     * pending→settled 重命名等后续事件不再触发上报。
      */
     fun startFileChangesDetection(onDetected: () -> Unit) {
         stopFileChangesDetection()
@@ -692,11 +758,14 @@ class DetectionFunctions(private val activity: MainActivity) {
             File(external, "Movies")
         )
         val handler = Handler(Looper.getMainLooper())
-        val onFileEvent: (String?) -> Unit = { path ->
+        val onFileEvent: (File, String?) -> Unit = { dir, path ->
             if (path != null) {
                 handler.postDelayed({
                     val now = System.currentTimeMillis()
-                    if (now - lastFileObserverTime > 2000) {
+                    // 事件针对的文件须晚于重置水位线(旧文件的扫描器
+                    // 后续事件属于已被清除的旧证据，不重复上报)
+                    val fresh = File(dir, path).lastModified() > resetWatermarkMs
+                    if (fresh && now - lastFileObserverTime > 2000) {
                         lastFileObserverTime = now
                         onDetected()
                     }
@@ -708,7 +777,7 @@ class DetectionFunctions(private val activity: MainActivity) {
             if (!dir.exists()) return@forEach
             val observer = object : FileObserver(dir, CREATE or MOVED_TO) {
                 override fun onEvent(event: Int, path: String?) {
-                    onFileEvent(path)
+                    onFileEvent(dir, path)
                 }
             }
             if (dir == watchedDirs.first()) {
@@ -718,8 +787,9 @@ class DetectionFunctions(private val activity: MainActivity) {
             }
             observer.startWatching()
             // 冷启动回查：FileObserver 只覆盖注册后的事件，扫描目录中回看窗口内
-            // 落盘的截图/录屏文件(与媒体库判定窗口对齐)
-            if (dir.listFiles()?.any { it.lastModified() >= lookback } == true) {
+            // 落盘的截图/录屏文件(与媒体库判定窗口对齐，且晚于重置水位线)
+            if (dir.listFiles()?.any { it.lastModified() >= lookback &&
+                        it.lastModified() > resetWatermarkMs } == true) {
                 onDetected()
             }
         }
@@ -1200,7 +1270,6 @@ class DetectionFunctions(private val activity: MainActivity) {
     private fun virtualDisplayOwners(): Set<String> {
         val dm = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         return dm.displays
-            .asSequence()
             .filter { it.displayId != Display.DEFAULT_DISPLAY }
             .mapNotNull { displayInfo(it.displayId) }
             .mapNotNull { infoString(it, "ownerPackageName") }

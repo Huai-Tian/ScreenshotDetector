@@ -294,7 +294,13 @@ fun HomeCompose(
                             }
                         }
                     }
-                    IconButton(onClick = { startAllDetections() }) {
+                    IconButton(onClick = {
+                        // 重置检测：先记录水位线，重启后的媒体库回查/文件监听
+                        // 只报重置之后落盘的新证据(否则 15s 回看窗口内的旧
+                        // 截图会立即被重新报出，卡片"清不掉")
+                        activity.detectionFunctions.markReset()
+                        startAllDetections()
+                    }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.detect_again)

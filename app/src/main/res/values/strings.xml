@@ -66,6 +66,8 @@
     <string name="accessibility_overlay">Accessibility overlay present</string>
     <string name="accessibility_overlay_detail">Source: %1$s</string>
     <string name="video_media_library">Screen recording video saved</string>
+    <string name="shell_screenshot">Shell / ADB screenshot</string>
+    <string name="shell_screenshot_detail">File: %1$s (written by com.android.shell — typically produced by adb screencap)</string>
     <string name="media_owner_detail">Written by: %1$s</string>
     <string name="mic_muted_suffix"> (microphone muted)</string>
     <string name="hdmi_audio_suffix"> (audio routed to HDMI)</string>

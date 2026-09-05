@@ -51,6 +51,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.io.File
 import java.util.function.Consumer
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.core.net.toUri
 
 /**
  * 全部检测逻辑的宿主：持有各检测器的回调/观察者等运行期状态，
@@ -207,7 +208,7 @@ class DetectionFunctions(private val activity: MainActivity) {
                     activity.startActivity(
                         Intent(
                             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.parse("package:${activity.packageName}")
+                            "package:${activity.packageName}".toUri()
                         )
                     )
                 }
@@ -951,6 +952,7 @@ class DetectionFunctions(private val activity: MainActivity) {
      * 即处于分屏/小窗形态。键盘弹出同样缩小 current bounds，故 IME 可见时
      * 跳过判定；连续 3 次命中才上报防瞬态。
      */
+    @RequiresApi(Build.VERSION_CODES.R)
     private fun checkMetricsFallback(callback: (DetectionItems) -> Unit) = runCatching {
         val wm = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val imeVisible = activity.window.decorView.rootWindowInsets

@@ -81,7 +81,7 @@ object Auxiliary {
     private fun ownerOf(cursor: android.database.Cursor): String? {
         val idx = cursor.getColumnIndex("owner_package_name")
         if (idx < 0) return null
-        return cursor.getString(idx)?.takeUnless { it.isNullOrBlank() }
+        return cursor.getString(idx)?.takeUnless { it.isBlank() }
     }
 
     /**
@@ -268,7 +268,7 @@ object Auxiliary {
      * 均返回 null 不上报。
      */
     private fun reportThirdPartyService(context: Context, component: String?): String? {
-        val pkg = component?.substringBefore('/')?.takeUnless { it.isNullOrBlank() } ?: return null
+        val pkg = component?.substringBefore('/')?.takeUnless { it.isBlank() } ?: return null
         if (!isThirdPartyApp(context, pkg)) return null
         return context.getString(R.string.current_service_detail, pkg)
     }
@@ -295,7 +295,7 @@ object Auxiliary {
                     d.javaClass.getMethod("getFriendlyDisplayName").invoke(d) as? String
                 }.getOrNull()
             }
-        }.filter { !it.isNullOrBlank() }
+        }.filter { it.isNotBlank() }
         if (names.isEmpty()) null
         else context.getString(R.string.wfd_available_detail, names.take(5).joinToString(", "))
     }.getOrNull()

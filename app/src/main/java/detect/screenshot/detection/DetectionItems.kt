@@ -67,8 +67,17 @@ enum class DetectionItems(
     ),
     MEDIA_LIBRARY(
         R.string.media_library_changed,
-        start = { onIssue -> startMediaLibraryDetection { onIssue(MEDIA_LIBRARY, null) } },
+        start = { onIssue -> startMediaLibraryDetection { owner ->
+            onIssue(MEDIA_LIBRARY, owner?.let { describeMediaOwner(it) })
+        } },
         stop = { stopMediaLibraryDetection() }
+    ),
+    VIDEO_MEDIA_LIBRARY(
+        R.string.video_media_library,
+        start = { onIssue -> startVideoMediaLibraryDetection { owner ->
+            onIssue(VIDEO_MEDIA_LIBRARY, owner?.let { describeMediaOwner(it) })
+        } },
+        stop = { stopVideoMediaLibraryDetection() }
     ),
 
     // ---------- 环境风险 ----------
@@ -82,6 +91,11 @@ enum class DetectionItems(
     OVERLAY_DISPLAY(R.string.overlay_display_enabled),
     ACCESSIBILITY_SERVICE(R.string.accessibility_service),
     WIRELESS_DISPLAY_ON(R.string.wireless_display_enabled),
+    INPUT_METHOD(R.string.third_party_input_method),
+    AUTOFILL_SERVICE(R.string.third_party_autofill),
+    VOICE_INTERACTION(R.string.third_party_voice_interaction),
+    ASSISTANT_APP(R.string.third_party_assistant),
+    DOCK_CONNECTED(R.string.dock_connected),
 
     // ---------- 媒体 ----------
     FILE_CHANGES(
@@ -120,6 +134,11 @@ enum class DetectionItems(
     ),
     WINDOW_NOT_FULLY_PRESENTED(
         R.string.window_not_fully_presented,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
+    ACCESSIBILITY_OVERLAY(
+        R.string.accessibility_overlay,
         start = { onIssue -> startWindowDetection(onIssue) },
         stop = { stopWindowDetection() }
     ),

@@ -57,12 +57,25 @@
     <!--检测增强服务(可选)-->
     <string name="accessibility_service_label">Detection enhancement</string>
     <string name="accessibility_service_summary">Real-time window attribution to enhance detection</string>
-    <string name="accessibility_service_description">Used only to enhance screen-capture behavior detection: reads window package names and window-state-change events in real time for freeform-window attribution, occlusion-source attribution, and audio-recording source inference. Window content and personal data are never read.</string>
+    <string name="accessibility_service_description">Used only to enhance screen-capture behavior detection: reads window package names and window-state-change events in real time for freeform-window attribution, occlusion-source attribution, and audio-recording source inference; on Android 13 and below it also watches the screenshot key event (not consumed) to detect key-press screenshots. Window content and personal data are never read.</string>
     <string name="notification_listener_label">Detection enhancement</string>
     <!--检测增强项-->
     <string name="recording_service_active">Recording/casting service running</string>
     <string name="recording_service_detail">Ongoing (%1$d): %2$s</string>
     <string name="window_not_fully_presented_detail">Occluded by: %1$s</string>
+    <string name="accessibility_overlay">Accessibility overlay present</string>
+    <string name="accessibility_overlay_detail">Source: %1$s</string>
+    <string name="video_media_library">Screen recording video saved</string>
+    <string name="media_owner_detail">Written by: %1$s</string>
+    <string name="mic_muted_suffix"> (microphone muted)</string>
+    <string name="hdmi_audio_suffix"> (audio routed to HDMI)</string>
+    <string name="third_party_assistant">Third-party assistant app active</string>
+    <string name="third_party_input_method">Third-party input method active</string>
+    <string name="third_party_autofill">Third-party autofill service active</string>
+    <string name="third_party_voice_interaction">Third-party voice service active</string>
+    <string name="current_service_detail">Current: %1$s</string>
+    <string name="wfd_available_detail">Available receivers: %1$s</string>
+    <string name="dock_connected">Dock / desktop mode active</string>
     <string name="more">More</string>
     <string name="open_source">Open Source</string>
     <string name="info">Info</string>

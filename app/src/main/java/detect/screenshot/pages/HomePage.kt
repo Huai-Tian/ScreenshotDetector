@@ -102,12 +102,20 @@ fun HomeCompose(
     // ========== 权限状态面板(顶栏安全等级图标入口) ==========
     var permExpanded by remember { mutableStateOf(false) }
     var permItems by remember { mutableStateOf(queryPermItems(activity)) }
-    var storageGranted by remember { mutableStateOf(Auxiliary.hasStoragePermission(activity)) }
+    var imagesGranted by remember { mutableStateOf(Auxiliary.hasImagesPermission(activity)) }
+    var videoGranted by remember { mutableStateOf(Auxiliary.hasVideoPermission(activity)) }
 
+    // 图+视频一次弹窗合并申请(33+ 两个运行时权限；拒绝是用户的选择，
+    // 仅当"不再询问"(rationale 不可展示)后才引导跳应用详情设置)
     val mediaPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted && !activity.shouldShowRequestPermissionRationale(mediaPermissionName())) {
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        val missing = mediaPermissionNames().filter {
+            context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty() && missing.all {
+                !activity.shouldShowRequestPermissionRationale(it)
+            }) {
             openPermissionSettings(context, PermissionJump.APP_DETAILS)
         }
     }
@@ -116,13 +124,21 @@ fun HomeCompose(
         while (true) {
             val items = withContext(Dispatchers.Default) { queryPermItems(activity) }
             permItems = items
-            val storageNow = items.first { it.jump == PermissionJump.RUNTIME_PERMISSION }.granted
-            if (storageNow && !storageGranted) {
+            // 权限落地即时补启对应检测(面板外授权/仅授其一的场景)
+            val imagesNow = Auxiliary.hasImagesPermission(activity)
+            val videoNow = Auxiliary.hasVideoPermission(activity)
+            if (imagesNow && !imagesGranted) {
                 DetectionItems.MEDIA_LIBRARY.start(activity.detectionFunctions) { item, detail ->
                     issues[item] = detail
                 }
             }
-            storageGranted = storageNow
+            if (videoNow && !videoGranted) {
+                DetectionItems.VIDEO_MEDIA_LIBRARY.start(activity.detectionFunctions) { item, detail ->
+                    issues[item] = detail
+                }
+            }
+            imagesGranted = imagesNow
+            videoGranted = videoNow
             delay((if (permExpanded) 500L else 2_000L).milliseconds)
         }
     }
@@ -244,7 +260,7 @@ fun HomeCompose(
                                                 if (item.jump == PermissionJump.RUNTIME_PERMISSION) {
                                                     // 运行时权限直接弹系统授权框
                                                     // (勾选"不再询问"后才跳设置，见回调)
-                                                    mediaPermLauncher.launch(mediaPermissionName())
+                                                    mediaPermLauncher.launch(mediaPermissionNames())
                                                 } else {
                                                     // 特殊访问授权无弹窗，只能去设置
                                                     openPermissionSettings(context, item.jump)
@@ -451,7 +467,7 @@ private enum class PermissionJump {
 private fun queryPermItems(context: Context): List<PermItem> = listOf(
     PermItem(
         R.string.permission_photos_video,
-        Auxiliary.hasStoragePermission(context),
+        Auxiliary.hasMediaPermissions(context),
         PermissionJump.RUNTIME_PERMISSION
     ),
     PermItem(
@@ -478,11 +494,15 @@ private fun queryPermItems(context: Context): List<PermItem> = listOf(
     ),
 )
 
-private fun mediaPermissionName(): String =
+/** 图+视频媒体权限名(33+ 两个；旧版本同一 READ_EXTERNAL_STORAGE) */
+private fun mediaPermissionNames(): Array<String> =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        Manifest.permission.READ_MEDIA_IMAGES
+        arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO
+        )
     } else {
-        Manifest.permission.READ_EXTERNAL_STORAGE
+        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 
 private fun openPermissionSettings(context: Context, jump: PermissionJump) {

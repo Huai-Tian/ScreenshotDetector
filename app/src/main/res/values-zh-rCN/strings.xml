@@ -57,12 +57,25 @@
     <!--检测增强服务(可选)-->
     <string name="accessibility_service_label">检测增强</string>
     <string name="accessibility_service_summary">实时窗口归因，增强检测能力</string>
-    <string name="accessibility_service_description">仅用于增强截屏行为检测：实时读取窗口包名与窗口状态变化事件，用于自由小窗归因、遮挡来源归因与录音来源推测。不读取任何窗口内容与个人数据。</string>
+    <string name="accessibility_service_description">仅用于增强截屏行为检测：实时读取窗口包名与窗口状态变化事件，用于自由小窗归因、遮挡来源归因与录音来源推测；Android 13 及以下版本还会监听截屏按键事件（不消费按键）以检测按键截屏。不读取任何窗口内容与个人数据。</string>
     <string name="notification_listener_label">检测增强</string>
     <!--检测增强项-->
     <string name="recording_service_active">录屏/投屏服务运行中</string>
     <string name="recording_service_detail">常驻(%1$d)：%2$s</string>
     <string name="window_not_fully_presented_detail">遮挡来源：%1$s</string>
+    <string name="accessibility_overlay">存在无障碍悬浮窗</string>
+    <string name="accessibility_overlay_detail">来源：%1$s</string>
+    <string name="video_media_library">录屏视频落库</string>
+    <string name="media_owner_detail">写入者：%1$s</string>
+    <string name="mic_muted_suffix">（麦克风已静音）</string>
+    <string name="hdmi_audio_suffix">（音频路由：HDMI）</string>
+    <string name="third_party_assistant">三方助手应用使用中</string>
+    <string name="third_party_input_method">三方输入法使用中</string>
+    <string name="third_party_autofill">三方自动填充服务使用中</string>
+    <string name="third_party_voice_interaction">三方语音服务使用中</string>
+    <string name="current_service_detail">当前：%1$s</string>
+    <string name="wfd_available_detail">可用对端：%1$s</string>
+    <string name="dock_connected">底座/桌面模式已接入</string>
     <string name="more">更多</string>
     <string name="open_source">开放源代码</string>
     <string name="info">关于</string>

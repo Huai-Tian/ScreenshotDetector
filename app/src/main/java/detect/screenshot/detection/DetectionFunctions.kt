@@ -14,6 +14,7 @@ import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
 import android.net.Uri
@@ -29,6 +30,7 @@ import android.view.Display
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -66,8 +68,11 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var mediaRouter: MediaRouter? = null
     private var mediaRouterCallback: MediaRouter.Callback? = null
     private var mediaLibraryObserver: ContentObserver? = null
-    private var pendingMediaLibraryCallback: (() -> Unit)? = null
+    private var pendingMediaLibraryCallback: ((String?) -> Unit)? = null
+    private var videoMediaLibraryObserver: ContentObserver? = null
+    private var pendingVideoLibraryCallback: ((String?) -> Unit)? = null
     private var fileObserver: FileObserver? = null
+    private var extraFileObservers = mutableListOf<FileObserver>()
     private var lastFileObserverTime = 0L
     private var isBehaviorDetectionActive = false
     private var behaviorIssueCallback: ((DetectionItems) -> Unit)? = null
@@ -165,20 +170,84 @@ class DetectionFunctions(private val activity: MainActivity) {
     private fun envAdapter(onIssue: (DetectionItems, String?) -> Unit): (DetectionItems) -> Unit =
         { item -> onIssue(item, null) }
 
-    // ---------- 媒体库权限申请 ----------
-    private val requestPermissionLauncher = activity.registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            pendingMediaLibraryCallback?.let {
-                startMediaLibraryDetection(it)
-                pendingMediaLibraryCallback = null
+    // ---------- 媒体库权限申请(图+视频一次弹窗合并申请) ----------
+
+    /** 本次申请是否由权限面板发起(用户主动点击)：决定拒绝后是否引导跳设置 */
+    private var isPanelInitiatedRequest = false
+
+    private val requestMediaPermissionsLauncher = activity.registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        val fromPanel = isPanelInitiatedRequest
+        isPanelInitiatedRequest = false
+        // 各自检查自身权限落地情况(拒绝是用户的选择，静默不提示，
+        // 权限状态面板持续显示未授权状态)
+        val imagesGranted = Auxiliary.hasImagesPermission(activity)
+        val videoGranted = Auxiliary.hasVideoPermission(activity)
+        pendingMediaLibraryCallback?.let {
+            if (imagesGranted) startMediaLibraryDetection(it)
+        }
+        if (imagesGranted) pendingMediaLibraryCallback = null
+        else if (!fromPanel) pendingMediaLibraryCallback = null
+        pendingVideoLibraryCallback?.let {
+            if (videoGranted) startVideoMediaLibraryDetection(it)
+        }
+        if (videoGranted) pendingVideoLibraryCallback = null
+        else if (!fromPanel) pendingVideoLibraryCallback = null
+        // 面板发起且仍有缺失、"不再询问"(rationale 不可展示)时才引导跳设置
+        if (fromPanel) {
+            val missing = buildList {
+                if (!imagesGranted) add(imagesPermissionName())
+                if (!videoGranted) add(videoPermissionName())
+            }.distinct()
+            if (missing.isNotEmpty() && missing.all {
+                    !activity.shouldShowRequestPermissionRationale(it)
+                }) {
+                runCatching {
+                    activity.startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:${activity.packageName}")
+                        )
+                    )
+                }
             }
-        } else {
-            // 拒绝授权是用户的选择，不提示；权限状态面板会持续显示该项未授权
-            pendingMediaLibraryCallback = null
         }
     }
+
+    /** 申请图+视频媒体权限(33+ 一次弹两个；旧版本同一 READ_EXTERNAL_STORAGE) */
+    fun requestMediaPermissions(fromPanel: Boolean) {
+        // 系统权限对话框以独立 Activity 覆盖本应用(触发 onPause)，
+        // 属自发导航，期间切屏检测静默(见 isSelfNavigation 注释)
+        isSelfNavigation = true
+        isPanelInitiatedRequest = fromPanel
+        requestMediaPermissionsLauncher.launch(mediaPermissionNames())
+    }
+
+    private fun mediaPermissionNames(): Array<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(imagesPermissionName(), videoPermissionName())
+        } else {
+            arrayOf(imagesPermissionName())
+        }
+
+    private fun imagesPermissionName(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    private fun videoPermissionName(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_VIDEO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+    /** 媒体写入者归因详情行(图/视频共用) */
+    fun describeMediaOwner(owner: String): String =
+        activity.getString(R.string.media_owner_detail, owner)
 
     // ---------- 拦截触摸事件，检测悬浮窗遮挡 ----------
     fun dispatchTouchEvent(ev: MotionEvent) {
@@ -198,13 +267,20 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     // ---------- 截屏检测 ----------
     fun startKeyPressDetection(onDetected: () -> Unit) {
+        stopKeyPressDetection()
         if (Auxiliary.KeyPressDetectionAvailable) {
-            stopKeyPressDetection()
             val callback = Activity.ScreenCaptureCallback {
                 onDetected()
             }
             screenCaptureCallback = callback
             activity.registerScreenCaptureCallback(activity.mainExecutor, callback)
+        } else {
+            // API < 34：ScreenCaptureCallback 不可用，退回无障碍按键流
+            // (需开启本应用无障碍服务；不消费按键，见 onKeyEvent 注释)。
+            // 按键流是全局的——本应用在后台时截的不是我们，仅前台时上报
+            EnhancementState.onScreenshotKey = {
+                if (!isInBackground) onDetected()
+            }
         }
     }
 
@@ -218,6 +294,7 @@ class DetectionFunctions(private val activity: MainActivity) {
             }
             screenCaptureCallback = null
         }
+        EnhancementState.onScreenshotKey = null
     }
 
     // ---------- 录屏检测 ----------
@@ -295,7 +372,8 @@ class DetectionFunctions(private val activity: MainActivity) {
             }
         return when (infoInt(info, "type")) {
             DISPLAY_TYPE_WIFI -> activity.getString(R.string.display_type_wifi) + secureSuffix
-            DISPLAY_TYPE_EXTERNAL -> activity.getString(R.string.display_type_external)
+            DISPLAY_TYPE_EXTERNAL ->
+                activity.getString(R.string.display_type_external) + hdmiAudioSuffix()
             DISPLAY_TYPE_OVERLAY -> activity.getString(R.string.display_type_overlay)
             DISPLAY_TYPE_VIRTUAL -> {
                 val owner = infoString(info, "ownerPackageName")
@@ -314,6 +392,20 @@ class DetectionFunctions(private val activity: MainActivity) {
 
             else -> activity.getString(R.string.display_type_unknown)
         }
+    }
+
+    /**
+     * HDMI 音频旁证后缀(公开 API)：有线外接显示器场景下音频是否同时路由到
+     * HDMI 输出——接入 HDMI 显示器时音频输出通道即注册，检出说明媒体声音
+     * 正在向外接设备传输。附于 EXTERNAL_DISPLAY 卡片详情。
+     */
+    private fun hdmiAudioSuffix(): String {
+        val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val routed = runCatching {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .any { it.type == AudioDeviceInfo.TYPE_HDMI }
+        }.getOrDefault(false)
+        return if (routed) activity.getString(R.string.hdmi_audio_suffix) else ""
     }
 
     /**
@@ -513,19 +605,11 @@ class DetectionFunctions(private val activity: MainActivity) {
         mediaRouter = null
     }
 
-    // ---------- 媒体库监听 ----------
-    fun startMediaLibraryDetection(onDetected: () -> Unit) {
-        if (!Auxiliary.hasStoragePermission(activity)) {
+    // ---------- 媒体库监听(图片=截图 / 视频=录屏) ----------
+    fun startMediaLibraryDetection(onDetected: (owner: String?) -> Unit) {
+        if (!Auxiliary.hasImagesPermission(activity)) {
             pendingMediaLibraryCallback = onDetected
-            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                Manifest.permission.READ_MEDIA_IMAGES
-            } else {
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            }
-            // 系统权限对话框以独立 Activity 覆盖本应用(触发 onPause)，
-            // 属自发导航，期间切屏检测静默(见 isSelfNavigation 注释)
-            isSelfNavigation = true
-            requestPermissionLauncher.launch(permission)
+            requestMediaPermissions(fromPanel = false)
             return
         }
         stopMediaLibraryDetection()
@@ -553,42 +637,94 @@ class DetectionFunctions(private val activity: MainActivity) {
         }
     }
 
-    // ---------- FileObserver 检测 ----------
-    fun startFileChangesDetection(onDetected: () -> Unit) {
-        stopFileChangesDetection()
-        val screenshotsDir = File(
-            Environment.getExternalStorageDirectory(),
-            "Pictures/Screenshots"
-        )
-        if (!screenshotsDir.exists()) {
+    /**
+     * 视频媒体库监听(录屏落库证据链)：监听 MediaStore.Video 新增，回看窗口
+     * 内命中录屏特征命名(screenrecord/屏幕录制等，见 Auxiliary)即上报，
+     * 详情附写入者归因(owner_package_name，跨应用可见性依 ROM 而定，可降级)。
+     * 与图片版同模式：事件回调 + 注册时冷启动回查。
+     */
+    fun startVideoMediaLibraryDetection(onDetected: (owner: String?) -> Unit) {
+        if (!Auxiliary.hasVideoPermission(activity)) {
+            pendingVideoLibraryCallback = onDetected
+            requestMediaPermissions(fromPanel = false)
             return
         }
-        val observer = object : FileObserver(screenshotsDir, CREATE or MOVED_TO) {
-            override fun onEvent(event: Int, path: String?) {
-                if (path != null) {
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        val now = System.currentTimeMillis()
-                        if (now - lastFileObserverTime > 2000) {
-                            lastFileObserverTime = now
-                            onDetected()
-                        }
-                    }, 300)
-                }
+        stopVideoMediaLibraryDetection()
+        val contentResolver = activity.contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                Auxiliary.checkForScreenRecordingVideo(contentResolver, onDetected)
             }
         }
-        fileObserver = observer
-        observer.startWatching()
-        // 冷启动回查：FileObserver 只覆盖注册后的事件，扫描目录中回看窗口内
-        // 落盘的截图文件(与媒体库截图判定窗口对齐)
+        videoMediaLibraryObserver = observer
+        contentResolver.registerContentObserver(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            true,
+            observer
+        )
+        Auxiliary.checkForScreenRecordingVideo(contentResolver, onDetected)
+    }
+
+    fun stopVideoMediaLibraryDetection() {
+        videoMediaLibraryObserver?.let {
+            activity.contentResolver.unregisterContentObserver(it)
+            videoMediaLibraryObserver = null
+        }
+    }
+
+    // ---------- FileObserver 检测 ----------
+    /**
+     * 截图/录屏目录文件监听：Pictures/Screenshots(截图，AOSP) +
+     * Movies/ScreenRecords(录屏，AOSP) + Movies(三方录屏常见落点)。
+     * 录屏目录是即时文件信号——先于媒体库扫描落库数秒。
+     */
+    fun startFileChangesDetection(onDetected: () -> Unit) {
+        stopFileChangesDetection()
+        val external = Environment.getExternalStorageDirectory()
+        val watchedDirs = listOf(
+            File(external, "Pictures/Screenshots"),
+            File(external, "Movies/ScreenRecords"),
+            File(external, "Movies")
+        )
+        val handler = Handler(Looper.getMainLooper())
+        val onFileEvent: (String?) -> Unit = { path ->
+            if (path != null) {
+                handler.postDelayed({
+                    val now = System.currentTimeMillis()
+                    if (now - lastFileObserverTime > 2000) {
+                        lastFileObserverTime = now
+                        onDetected()
+                    }
+                }, 300)
+            }
+        }
         val lookback = System.currentTimeMillis() - FILE_LOOKBACK_MS
-        if (screenshotsDir.listFiles()?.any { it.lastModified() >= lookback } == true) {
-            onDetected()
+        watchedDirs.forEach { dir ->
+            if (!dir.exists()) return@forEach
+            val observer = object : FileObserver(dir, CREATE or MOVED_TO) {
+                override fun onEvent(event: Int, path: String?) {
+                    onFileEvent(path)
+                }
+            }
+            if (dir == watchedDirs.first()) {
+                fileObserver = observer
+            } else {
+                extraFileObservers.add(observer)
+            }
+            observer.startWatching()
+            // 冷启动回查：FileObserver 只覆盖注册后的事件，扫描目录中回看窗口内
+            // 落盘的截图/录屏文件(与媒体库判定窗口对齐)
+            if (dir.listFiles()?.any { it.lastModified() >= lookback } == true) {
+                onDetected()
+            }
         }
     }
 
     fun stopFileChangesDetection() {
         fileObserver?.stopWatching()
         fileObserver = null
+        extraFileObservers.forEach { it.stopWatching() }
+        extraFileObservers.clear()
     }
 
     // ---------- 环境安全检测(ADB/开发者选项/无障碍，分别上报) ----------
@@ -713,15 +849,20 @@ class DetectionFunctions(private val activity: MainActivity) {
         // 路径——部分 ROM(实测 ColorOS 16)的小窗不置 multiWindow 标志但
         // windowingMode 照常返回 FREEFORM/MULTI_WINDOW，补上该盲区。
         // Configuration.windowConfiguration 为 API 30 公开字段，但 SDK 37.1
-        // 起该类移出公开 stub，改用反射读取(运行时类恒存在)
+        // 起该类移出公开 stub，改用反射读取(运行时类恒存在)；反射失败时
+        // (返回 null)退回窗口尺寸比较兜底(见 checkMetricsFallback)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            when (currentWindowingMode()) {
-                WINDOWING_MODE_FREEFORM,
-                WINDOWING_MODE_MULTI_WINDOW -> {
-                    callback(DetectionItems.MULTI_WINDOW)
+            val windowingMode = currentWindowingMode()
+            if (windowingMode != null) {
+                when (windowingMode) {
+                    // PINNED 即画中画，isInPictureInPictureMode 已覆盖
+                    WINDOWING_MODE_FREEFORM,
+                    WINDOWING_MODE_MULTI_WINDOW -> callback(DetectionItems.MULTI_WINDOW)
                 }
-                // PINNED 即画中画，isInPictureInPictureMode 已覆盖
-                else -> Unit
+            } else {
+                // 反射不可用：current/maximum WindowMetrics 面积比较兜底
+                // (API 30+，键盘弹出时跳过防误报)
+                checkMetricsFallback(callback)
             }
         }
         if (activity.isInPictureInPictureMode) {
@@ -765,6 +906,9 @@ class DetectionFunctions(private val activity: MainActivity) {
         /** 隐藏 AppOps 字符串：投屏持久授权(AppOpsManager.OPSTR_PROJECT_MEDIA) */
         private const val OPSTR_PROJECT_MEDIA = "android:project_media"
 
+        /** 隐藏 AppOps 字符串：音频投屏持久授权(OPSTR_PROJECT_AUDIO) */
+        private const val OPSTR_PROJECT_AUDIO = "android:project_audio"
+
         /** 隐藏 AppOps 字符串：麦克风运行时权限(RECORD_AUDIO 对应 op) */
         private const val OPSTR_RECORD_AUDIO = "android:record_audio"
 
@@ -790,13 +934,40 @@ class DetectionFunctions(private val activity: MainActivity) {
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 
-    /** 反射读取当前窗口化形态，失败返回 0(FULLSCREEN，即不触发任何上报) */
-    private fun currentWindowingMode(): Int = runCatching {
+    /** 反射读取当前窗口化形态，失败返回 null(FULLSCREEN=0，见 checkBehaviorState) */
+    private fun currentWindowingMode(): Int? = runCatching {
         val configField =
             android.content.res.Configuration::class.java.getField("windowConfiguration")
         val windowConfig = configField.get(activity.resources.configuration)
         windowConfig.javaClass.getMethod("getWindowingMode").invoke(windowConfig) as Int
-    }.getOrDefault(0)
+    }.getOrNull()
+
+    /** 窗口尺寸兜底的持续缩小计数(约 3 秒，防横竖屏切换/键盘收起等瞬态) */
+    private var smallMetricsPolls = 0
+
+    /**
+     * windowingMode 反射不可用时的公开 API 兜底(API 30+)：
+     * currentWindowMetrics 持续明显小于 maximumWindowMetrics(面积 < 90%)
+     * 即处于分屏/小窗形态。键盘弹出同样缩小 current bounds，故 IME 可见时
+     * 跳过判定；连续 3 次命中才上报防瞬态。
+     */
+    private fun checkMetricsFallback(callback: (DetectionItems) -> Unit) = runCatching {
+        val wm = activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val imeVisible = activity.window.decorView.rootWindowInsets
+            ?.isVisible(android.view.WindowInsets.Type.ime()) == true
+        if (imeVisible) {
+            smallMetricsPolls = 0
+            return@runCatching
+        }
+        val current = wm.currentWindowMetrics.bounds
+        val maximum = wm.maximumWindowMetrics.bounds
+        val ratio = (current.width().toLong() * current.height()).toFloat() /
+                (maximum.width().toLong() * maximum.height()).coerceAtLeast(1L)
+        if (ratio < 0.9f) smallMetricsPolls++ else smallMetricsPolls = 0
+        if (smallMetricsPolls >= 3) {
+            callback(DetectionItems.MULTI_WINDOW)
+        }
+    }
 
     fun onPictureInPictureModeChanged() {
         checkBehaviorState()
@@ -877,8 +1048,9 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- 免询问投屏授权检测(隐藏 AppOps 字符串 android:project_media) ----------
 
     /**
-     * 枚举已安装应用，查询 project_media 的 AppOps 模式：MODE_ALLOWED 表示该
-     * 应用持有免用户询问直接投屏的持久授权(MediaProjection 复用授权流程写入)。
+     * 枚举已安装应用，查询 project_media / project_audio 的 AppOps 模式：
+     * 任一为 MODE_ALLOWED 表示该应用持有免用户询问直接投屏(视频/音频)的
+     * 持久授权(MediaProjection 复用授权流程写入)。
      * checkOpNoThrow 服务端无越包校验(经 AOSP 源码核实，getPackagesForOps 等
      * 统计接口才会被 GET_APP_OPS_STATS 拦截)；全量包枚举依赖 QUERY_ALL_PACKAGES。
      * 语义为"能力面"而非进行时，故低频轮询(15s)。
@@ -986,6 +1158,8 @@ class DetectionFunctions(private val activity: MainActivity) {
             .distinctBy { it.uid }
             .filter {
                 checkOpNoThrow(appOps, OPSTR_PROJECT_MEDIA, it.uid, it.packageName) ==
+                        AppOpsManager.MODE_ALLOWED ||
+                        checkOpNoThrow(appOps, OPSTR_PROJECT_AUDIO, it.uid, it.packageName) ==
                         AppOpsManager.MODE_ALLOWED
             }
             .map { it.packageName }
@@ -1064,7 +1238,17 @@ class DetectionFunctions(private val activity: MainActivity) {
                 activity.getString(R.string.audio_recording_suspect_only, it)
             }
         }
-        onIssue(DetectionItems.AUDIO_RECORDING, detail)
+        // 麦克风静音旁证(公开 API)：录音配置存在但系统级静音生效(隐私开关/
+        // ROM 静音)，录音实际无有效采集——附后缀提示用户甄别
+        val micMuted = runCatching {
+            (activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager).isMicrophoneMute
+        }.getOrDefault(false)
+        val fullDetail = if (micMuted) {
+            (detail ?: "") + activity.getString(R.string.mic_muted_suffix)
+        } else {
+            detail
+        }
+        onIssue(DetectionItems.AUDIO_RECORDING, fullDetail)
     }
 
     /**
@@ -1192,8 +1376,12 @@ class DetectionFunctions(private val activity: MainActivity) {
             events.getNextEvent(event)
             val pkg = event.packageName
             if (pkg == activity.packageName || pkg == SYSTEM_UI_PACKAGE) continue
+            // 前台服务停止也是使用证据：冷启动场景(先录音再打开检测器)下
+            // 录音前台服务可能已停止，FOREGROUND_SERVICE_STOP 时刻是该应用
+            // 最后活动的锚点，纳入后候选排序不失真
             val interesting = event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
-                    event.eventType == UsageEvents.Event.FOREGROUND_SERVICE_START
+                    event.eventType == UsageEvents.Event.FOREGROUND_SERVICE_START ||
+                    event.eventType == UsageEvents.Event.FOREGROUND_SERVICE_STOP
             if (interesting && event.timeStamp > (latest[pkg] ?: 0L)) {
                 latest[pkg] = event.timeStamp
             }
@@ -1208,12 +1396,14 @@ class DetectionFunctions(private val activity: MainActivity) {
         ).orEmpty()
             .filter {
                 it.packageName != activity.packageName &&
-                        it.packageName != SYSTEM_UI_PACKAGE &&
-                        it.lastTimeUsed > 0
+                        it.packageName != SYSTEM_UI_PACKAGE
             }
             .forEach {
-                if (it.lastTimeUsed > (latest[it.packageName] ?: 0L)) {
-                    latest[it.packageName] = it.lastTimeUsed
+                // lastTimeVisible(API 29+)：Activity 最近可见时刻，比 lastTimeUsed
+                // (任意组件使用均计入)更贴近"用户面对该应用"；二者取大兜底
+                val last = maxOf(it.lastTimeUsed, it.lastTimeVisible)
+                if (last > (latest[it.packageName] ?: 0L)) {
+                    latest[it.packageName] = last
                 }
             }
         latest.entries
@@ -1253,6 +1443,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         windowPollingJob = CoroutineScope(Dispatchers.Main).launch {
             while (isActive) {
                 detector.check(onIssue)
+                reportAccessibilityOverlay(onIssue)
                 delay(WindowReflectionDetector.POLL_INTERVAL_MS.milliseconds)
             }
         }
@@ -1363,6 +1554,26 @@ class DetectionFunctions(private val activity: MainActivity) {
             .maxByOrNull { it.layer }
             ?.pkg
     }
+
+    /**
+     * 无障碍悬浮窗检测(无障碍增强项)：TYPE_ACCESSIBILITY_OVERLAY 是仅供
+     * 无障碍服务使用的全屏覆盖层窗口类型——读屏软件、无障碍劫持木马的
+     * 典型载体。快照中存在该类型窗口即上报，详情为归属包名(排除本应用
+     * 自身服务)。无障碍未开启时快照为空，本项静默(优雅降级)。
+     */
+    private fun reportAccessibilityOverlay(onIssue: (DetectionItems, String?) -> Unit) {
+        val pkg = accessibilityOverlayPackage() ?: return
+        onIssue(
+            DetectionItems.ACCESSIBILITY_OVERLAY,
+            activity.getString(R.string.accessibility_overlay_detail, pkg)
+        )
+    }
+
+    /** 无障碍悬浮窗包名：快照中 TYPE_ACCESSIBILITY_OVERLAY 窗口的归属应用 */
+    private fun accessibilityOverlayPackage(): String? =
+        EnhancementState.accessibilityInstance?.windowSnapshot().orEmpty()
+            .firstOrNull { it.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY }
+            ?.pkg?.takeUnless { it.isBlank() || it == activity.packageName }
 
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     private fun stopTrustedPresentationDetection() {

@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.graphics.Rect
 import android.service.notification.NotificationListenerService
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,6 +31,13 @@ object EnhancementState {
     @Volatile var accessibilityInstance: DetectorAccessibilityService? = null
 
     @Volatile var notificationInstance: DetectorNotificationListenerService? = null
+
+    /**
+     * 截屏按键回调(API < 34 的按键截屏检测来源，见 DetectionFunctions
+     * .startKeyPressDetection)：无障碍按键流观测到 KEYCODE_SCREENSHOT
+     * 时触发。服务未开启时无人注册，事件自然丢弃。
+     */
+    @Volatile var onScreenshotKey: (() -> Unit)? = null
 
     fun noteWindowState(pkg: String, atMs: Long) {
         // 防无界增长：超量时清理过期条目
@@ -72,6 +80,26 @@ class DetectorAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() { /* 无反馈型服务 */ }
+
+    /**
+     * 按键过滤流(需 flagRequestFilterKeyEvents)：观测全局按键，仅识别
+     * 截屏键(KEYCODE_SCREENSHOT = 277，API 31 公开常量；编译期硬编码
+     * 以兼容 minSdk 29，旧设备不产生该键值，无副作用)。始终返回 false
+     * 不消费按键——本服务只"看见"按键，不改变其传递。
+     */
+    override fun onKeyEvent(event: KeyEvent?): Boolean {
+        if (event != null && event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 &&
+            event.keyCode == KEYCODE_SCREENSHOT
+        ) {
+            EnhancementState.onScreenshotKey?.invoke()
+        }
+        return false
+    }
+
+    private companion object {
+        /** android.view.KeyEvent.KEYCODE_SCREENSHOT(API 31 公开，值 277 稳定) */
+        private const val KEYCODE_SCREENSHOT = 277
+    }
 
     override fun onDestroy() {
         EnhancementState.accessibilityInstance = null

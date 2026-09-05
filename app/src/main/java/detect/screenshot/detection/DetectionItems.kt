@@ -8,7 +8,15 @@ import detect.screenshot.R
  * 检测条目：一条记录 = 一张异常卡片 + 一份检测逻辑。
  *
  * 每个条目携带：
+ * - [isSuspicious]：语义分类(见下方说明)
  * - [start] / [stop]：检测的启动/停止回调(以 DetectionFunctions 为接收者)
+ *
+ * 分类语义(数据层标记，UI 呈现由调用方决定)：
+ * - 确定性(默认)：捕获/干扰事件本身已发生——截屏、录屏、投屏、录音活动、
+ *   切屏、小窗、遮挡等可观测事实，"检测到 = 行为发生"；
+ * - 可疑痕迹(isSuspicious = true)：风险条件与能力面——环境开关、已启用的
+ *   读屏者通道、持有的特殊授权、伪造工具特征等，"检测到 = 存在可被利用的
+ *   通道/条件"，不直接证明捕获行为发生过。
  *
  * 所有检测项默认全部开启，调用方(HomeCompose)遍历 [entries] 即可
  * 完成检测启停，无需逐项配置。
@@ -21,10 +29,12 @@ import detect.screenshot.R
 @Immutable
 enum class DetectionItems(
     @StringRes val labelRes: Int,
+    /** 可疑痕迹类(能力面/环境条件，非确定发生的捕获事件)；默认为确定性事件 */
+    val isSuspicious: Boolean = false,
     val start: DetectionFunctions.(onIssue: (DetectionItems, String?) -> Unit) -> Unit = { },
     val stop: DetectionFunctions.() -> Unit = { }
 ) {
-    // ---------- 截屏/录屏/投屏 ----------
+    // ---------- 截屏/录屏/投屏(确定性) ----------
     KEY_PRESS_SCREENSHOT(
         R.string.key_press_screenshot,
         start = { onIssue -> startKeyPressDetection { onIssue(KEY_PRESS_SCREENSHOT, null) } },
@@ -55,11 +65,6 @@ enum class DetectionItems(
         start = { onIssue -> startMediaProjectionDetection(onIssue) },
         stop = { stopMediaProjectionDetection() }
     ),
-    MEDIA_PROJECTION_CONSENT(
-        R.string.projection_consent,
-        start = { onIssue -> startProjectionConsentDetection(onIssue) },
-        stop = { stopProjectionConsentDetection() }
-    ),
     RECORDING_SERVICE(
         R.string.recording_service_active,
         start = { onIssue -> startRecordingServiceDetection(onIssue) },
@@ -80,24 +85,59 @@ enum class DetectionItems(
         stop = { stopVideoMediaLibraryDetection() }
     ),
 
-    // ---------- 环境风险 ----------
+    // ---------- 可疑痕迹：免询问能力面 ----------
+    MEDIA_PROJECTION_CONSENT(
+        R.string.projection_consent,
+        isSuspicious = true,
+        start = { onIssue -> startProjectionConsentDetection(onIssue) },
+        stop = { stopProjectionConsentDetection() }
+    ),
+    NOTIFICATION_LISTENER(
+        R.string.notification_listener_apps,
+        isSuspicious = true,
+        start = { onIssue -> startThirdPartyCapabilityDetection(onIssue) },
+        stop = { stopThirdPartyCapabilityDetection() }
+    ),
+    CAPTURE_CHANNEL(
+        R.string.capture_channel_apps,
+        isSuspicious = true,
+        start = { onIssue -> startThirdPartyCapabilityDetection(onIssue) },
+        stop = { stopThirdPartyCapabilityDetection() }
+    ),
+    OVERLAY_CAPABLE(
+        R.string.overlay_capable_apps,
+        isSuspicious = true,
+        start = { onIssue -> startThirdPartyCapabilityDetection(onIssue) },
+        stop = { stopThirdPartyCapabilityDetection() }
+    ),
+
+    // ---------- 可疑痕迹：环境风险 ----------
     ADB_ENABLED(
         R.string.adb_enabled,
+        isSuspicious = true,
         start = { onIssue -> startEnvironmentDetection(onIssue) },
         stop = { stopEnvironmentDetection() }
     ),
-    ADB_WIFI(R.string.adb_wifi),
-    DEVELOPER_OPTIONS(R.string.developer_options),
-    OVERLAY_DISPLAY(R.string.overlay_display_enabled),
-    ACCESSIBILITY_SERVICE(R.string.accessibility_service),
-    WIRELESS_DISPLAY_ON(R.string.wireless_display_enabled),
-    INPUT_METHOD(R.string.third_party_input_method),
-    AUTOFILL_SERVICE(R.string.third_party_autofill),
-    VOICE_INTERACTION(R.string.third_party_voice_interaction),
-    ASSISTANT_APP(R.string.third_party_assistant),
-    DOCK_CONNECTED(R.string.dock_connected),
+    ADB_WIFI(R.string.adb_wifi, isSuspicious = true),
+    DEVELOPER_OPTIONS(R.string.developer_options, isSuspicious = true),
+    OVERLAY_DISPLAY(R.string.overlay_display_enabled, isSuspicious = true),
+    ACCESSIBILITY_SERVICE(R.string.accessibility_service, isSuspicious = true),
+    WIRELESS_DISPLAY_ON(R.string.wireless_display_enabled, isSuspicious = true),
+    DOCK_CONNECTED(R.string.dock_connected, isSuspicious = true),
 
-    // ---------- 媒体 ----------
+    // ---------- 可疑痕迹：读屏者通道 ----------
+    INPUT_METHOD(R.string.third_party_input_method, isSuspicious = true),
+    AUTOFILL_SERVICE(R.string.third_party_autofill, isSuspicious = true),
+    VOICE_INTERACTION(R.string.third_party_voice_interaction, isSuspicious = true),
+    ASSISTANT_APP(R.string.third_party_assistant, isSuspicious = true),
+    ACCESSIBILITY_OVERLAY(
+        R.string.accessibility_overlay,
+        isSuspicious = true,
+        start = { onIssue -> startWindowDetection(onIssue) },
+        stop = { stopWindowDetection() }
+    ),
+
+    // ---------- 媒体(确定性) ----------
     FILE_CHANGES(
         R.string.gallery_file_changed,
         start = { onIssue -> startFileChangesDetection { onIssue(FILE_CHANGES, null) } },
@@ -109,7 +149,7 @@ enum class DetectionItems(
         stop = { stopMediaRouterDetection() }
     ),
 
-    // ---------- 可疑行为 ----------
+    // ---------- 可疑行为(确定性) ----------
     SCREEN_SWITCH(
         R.string.screen_switch,
         start = { onIssue -> startBehaviorDetection { item, _ -> onIssue(item, null) } },
@@ -137,15 +177,11 @@ enum class DetectionItems(
         start = { onIssue -> startWindowDetection(onIssue) },
         stop = { stopWindowDetection() }
     ),
-    ACCESSIBILITY_OVERLAY(
-        R.string.accessibility_overlay,
-        start = { onIssue -> startWindowDetection(onIssue) },
-        stop = { stopWindowDetection() }
-    ),
 
-    // ---------- ScreenshotFaker ----------
+    // ---------- 可疑痕迹：伪造工具 ----------
     SCREENSHOT_FAKER(
         R.string.ScreenshotFaker,
+        isSuspicious = true,
         start = { onIssue -> startScreenshotFakerDetection { onIssue(SCREENSHOT_FAKER, null) } },
         stop = { stopScreenshotFakerDetection() }
     );

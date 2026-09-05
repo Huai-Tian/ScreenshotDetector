@@ -49,6 +49,12 @@
 - **设备环境安全检测**  
   检测开发者选项、USB 调试、无线调试（隐藏键 `adb_wifi_enabled`）、模拟辅助显示（隐藏键 `overlay_display_devices`）、无线显示开关（隐藏键 `wifi_display_on`）、无障碍模式（`getEnabledAccessibilityServiceList` 可跨应用枚举已启用的无障碍服务，卡片显示完整数量与最多 5 个应用包名，排除本应用自身的增强服务）等风险项。无障碍状态以 200ms 轮询实时刷新（覆盖后台开关与服务集合变化，卡片随当前状态出现/更新/移除）
 
+- **确定性/可疑痕迹双通道展示**  
+  检测项按语义分两类：**确定性事件**（截屏、录屏、投屏、切屏、小窗等可观测事实，"检测到 = 行为发生"）展示在主异常列表；**可疑痕迹**（环境开关、读屏者通道、免询问授权、伪造工具特征等能力面/环境条件，"检测到 = 存在可被利用的通道"，不证明行为发生）不再混入主列表，改由顶栏权限按钮左侧的眼睛图标单独入口弹层展示——无任何可疑命中时该图标不出现
+
+- **三方能力面检测**（可疑痕迹类）  
+  检测已启用通知监听的三方应用（可读取全部通知内容）、具备截屏通道的三方应用（清单声明 `FOREGROUND_SERVICE_MEDIA_PROJECTION`，targetSdk 34+ 的录屏/投屏应用必然声明）、可绘制悬浮窗的三方应用（持有 `SYSTEM_ALERT_WINDOW` 特殊授权，AppOps `MODE_ALLOWED` 判定）。卡片显示完整数量与最多 5 个包名；仅表能力面，不代表行为正在发生
+
 - **读屏者通道检测**  
   检测使用中的三方输入法（可读取全部按键输入）、三方自动填充服务（隐藏键 `autofill_service`，可读取全部表单内容）、三方语音交互服务、三方助手应用（`RoleManager` 查询默认助手，`QUERY_ROLE_HOLDERS` 权限——assist 通道是合法的整屏截图入口）。均仅报三方应用（预装系统服务不报防噪音），卡片显示当前服务包名
 
@@ -117,6 +123,9 @@
 - `FileObserver`：检测截图/录屏目录文件创建/移动（`Pictures/Screenshots`、`Movies/ScreenRecords`、`Movies` 多目录）
 - `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务（`getEnabledAccessibilityServiceList` 无需权限、跨应用可见且为实时 Binder 查询，卡片显示已启用服务的包名；无障碍状态经 200ms 轮询前后台即时同步，该项为实时状态——服务全部停用后卡片自动移除，其余环境项保持粘性以防关闭即抹除痕迹）
 - `Settings.Secure` / `RoleManager`：读屏者通道检测——三方输入法（`DEFAULT_INPUT_METHOD`）、三方自动填充（`autofill_service` 隐藏键）、三方语音交互（`voice_interaction_service`，SDK 37.1 起移出公开 stub 改硬编码值）、三方默认助手（`getRoleHolders`，SDK 37.1 起移出公开 stub 改反射，`QUERY_ROLE_HOLDERS` 权限）
+- `NotificationManagerCompat`：已启用通知监听的三方应用（读取 Settings.Secure 已启用列表，与自查同源跨应用枚举）
+- `PackageInfo.requestedPermissions`：具备截屏通道的三方应用（扫描清单声明 `FOREGROUND_SERVICE_MEDIA_PROJECTION` 的原始数组而非 checkPermission——权限在旧系统未定义时 checkPermission 恒拒，清单读取跨版本稳定）
+- `AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW`：可绘制悬浮窗的三方应用（`unsafeCheckOpNoThrow` 为 `MODE_ALLOWED` 即设置中显式开启；`Settings.canDrawOverlays` 仅支持自查自身无法查他者）
 - `UiModeManager`：底座/桌面模式检测（`currentModeType` 非 NORMAL 即 dock 接入）
 - `AudioDeviceInfo`：HDMI 音频旁证（`getDevices` 输出设备含 `TYPE_HDMI` 即媒体声音正向 HDMI 外接设备传输，附于外接显示器卡片详情）
 - `AudioManager.isMicrophoneMute`：录音详情的麦克风静音旁证（录音配置存在但系统级静音生效，实际无有效采集）
@@ -144,6 +153,8 @@
 - **Miracast 检测依赖 WFD 通道**：`WifiDisplayStatus` 仅覆盖 Miracast/WFD 投屏；Google Cast 及 ROM 私有投屏协议仍依赖 MediaRouter/显示器检测
 - **录屏视频落库依赖文件命名**：视频媒体库检测按录屏特征词（screenrecord / 屏幕录制等）匹配，非常规命名的录屏文件会漏报；虚拟显示器归属（进行中）与 FileObserver（落盘瞬间）双路兜底
 - **无障碍按键流的前台限制**：Android 11-13 的按键截屏检测依赖无障碍全局按键流，本应用在后台时按键截屏不归本应用、不上报；Android 14+ 无此限制（`ScreenCaptureCallback` 仅本应用可见窗口被截时回调）
+- **截屏通道检测的版本边界**：以清单声明 `FOREGROUND_SERVICE_MEDIA_PROJECTION` 为判定依据，仅覆盖 targetSdk 34+ 的应用；旧 targetSdk 应用不经此权限也能启动 MediaProjection 前台服务，不在统计内
+- **悬浮窗授权检测的边界**：仅统计 AppOps 为 `MODE_ALLOWED`（设置中显式开启）的应用；targetSdk < 23 的旧应用默认持有悬浮窗但 op 为 `MODE_DEFAULT`，不在统计内（现网已罕见）
 
 ---
 

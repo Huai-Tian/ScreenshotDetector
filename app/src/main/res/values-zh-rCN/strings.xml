@@ -76,6 +76,12 @@
     <string name="current_service_detail">当前：%1$s</string>
     <string name="wfd_available_detail">可用对端：%1$s</string>
     <string name="dock_connected">底座/桌面模式已接入</string>
+    <!--可疑痕迹(能力面/环境条件，非确定发生的捕获事件)-->
+    <string name="suspicious_findings">可疑痕迹</string>
+    <string name="notification_listener_apps">已启用通知监听的应用</string>
+    <string name="capture_channel_apps">具备截屏通道的应用</string>
+    <string name="overlay_capable_apps">可绘制悬浮窗的应用</string>
+    <string name="third_party_apps_detail">检出(%1$d)：%2$s</string>
     <string name="more">更多</string>
     <string name="open_source">开放源代码</string>
     <string name="info">关于</string>

@@ -26,6 +26,17 @@ import java.io.File
 private const val SCREENSHOT_TIME_THRESHOLD = 15
 
 /**
+ * android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION(API 34 引入的
+ * normal 权限，编译期硬编码字符串以兼容低版本 SDK)：targetSdk 34+ 的
+ * 录屏/投屏应用为启动 MediaProjection 前台服务所必须声明
+ */
+private const val PERMISSION_MEDIA_PROJECTION_FGS =
+    "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"
+
+/** PackageManager.GET_PERMISSIONS(API 1 起的公开常量，SDK 37.1 起移出公开 stub，值 1 稳定) */
+private const val PM_GET_PERMISSIONS = 1
+
+/**
  * 全量枚举可见的最低包数阈值：正常设备(预装+用户应用)必然远超此数；
  * 被 ColorOS"获取应用列表"开关拦截时通常仅返回自身与极少数系统包
  */
@@ -279,6 +290,69 @@ object Auxiliary {
         (ai.flags and (ApplicationInfo.FLAG_SYSTEM or
                 ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
     }.getOrDefault(false)
+
+    /**
+     * 已启用通知监听的三方应用：可读取设备上全部通知内容(验证码、消息等)。
+     * 数据源与自查同款(NotificationManagerCompat 读取 Settings.Secure 的
+     * 已启用列表)，跨应用枚举；排除自身(增强服务)与系统应用。
+     */
+    fun thirdPartyNotificationListeners(context: Context): List<String> = runCatching {
+        NotificationManagerCompat.getEnabledListenerPackages(context)
+            .filter { it != context.packageName && isThirdPartyApp(context, it) }
+            .sorted()
+    }.getOrDefault(emptyList())
+
+    /**
+     * 具备截屏通道的三方应用：清单声明 FOREGROUND_SERVICE_MEDIA_PROJECTION
+     * (Android 14+ 启动 MediaProjection 前台服务的强制权限，targetSdk 34+
+     * 的录屏/投屏应用必然声明)。读 requestedPermissions 原始数组而非
+     * checkPermission——权限在旧系统未定义时 checkPermission 恒拒，
+     * 清单声明读取跨版本稳定。旧 targetSdk 应用不声明此权限，不覆盖
+     * (见 README 已知限制)。
+     */
+    fun screenCaptureChannelApps(context: Context): List<String> = runCatching {
+        context.packageManager.getInstalledPackages(PM_GET_PERMISSIONS)
+            .asSequence()
+            .mapNotNull { pi -> pi.applicationInfo?.let { ai -> pi to ai } }
+            .filter { (pi, _) -> pi.packageName != context.packageName }
+            .filter { (_, ai) ->
+                (ai.flags and (ApplicationInfo.FLAG_SYSTEM or
+                        ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
+            }
+            .filter { (pi, _) ->
+                pi.requestedPermissions?.contains(PERMISSION_MEDIA_PROJECTION_FGS) == true
+            }
+            .map { (pi, _) -> pi.packageName }
+            .sorted()
+            .toList()
+    }.getOrDefault(emptyList())
+
+    /**
+     * 可绘制悬浮窗的三方应用：持有 SYSTEM_ALERT_WINDOW 特殊授权。跨应用
+     * 判定走 AppOps(OPSTR_SYSTEM_ALERT_WINDOW 为 MODE_ALLOWED 即用户在
+     * 设置中显式开启——Settings.canDrawOverlays 仅支持自查自身，无法查他者)。
+     * 仅表能力面——授权存在不代表悬浮窗正在显示。targetSdk < 23 的旧应用
+     * 默认持有悬浮窗但 op 为 MODE_DEFAULT，不在统计内(现网已罕见)。
+     */
+    fun overlayCapableApps(context: Context): List<String> = runCatching {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        context.packageManager.getInstalledPackages(0)
+            .asSequence()
+            .mapNotNull { it.applicationInfo }
+            .filter { it.packageName != context.packageName }
+            .filter {
+                (it.flags and (ApplicationInfo.FLAG_SYSTEM or
+                        ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
+            }
+            .filter {
+                appOps.unsafeCheckOpNoThrow(
+                    AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, it.uid, it.packageName
+                ) == AppOpsManager.MODE_ALLOWED
+            }
+            .map { it.packageName }
+            .sorted()
+            .toList()
+    }.getOrDefault(emptyList())
 
     /**
      * WFD 可用对端详情：反射 WifiDisplayStatus.getDisplayList()

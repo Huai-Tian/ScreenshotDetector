@@ -25,8 +25,13 @@ class MainActivity : ComponentActivity() {
     val detectionFunctions = DetectionFunctions(this)
 
     // ========== 异常检测结果(粘性)：检测项 -> 详情(可空，如小窗包名) ==========
-    // 一旦检出持续显示，只能通过重置清除；重复上报时详情取最新值
+    // 一旦检出持续显示，只能通过重置清除；重复上报时详情取最新值。
+    // 确定性事件(截/录/投/切屏/小窗等)入 detectedIssues；
+    // 可疑痕迹(能力面/环境条件，见 DetectionItems.isSuspicious)入
+    // detectedSuspicions，由顶栏眼睛按钮单独展示，不混入主异常列表
     val detectedIssues = mutableStateMapOf<DetectionItems, String?>()
+
+    val detectedSuspicions = mutableStateMapOf<DetectionItems, String?>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,7 +42,8 @@ class MainActivity : ComponentActivity() {
             if (showHome) {
                 HomeCompose(
                     activity = this,
-                    issues = detectedIssues
+                    issues = detectedIssues,
+                    suspicions = detectedSuspicions
                 )
             } else {
                 AgreementCompose(

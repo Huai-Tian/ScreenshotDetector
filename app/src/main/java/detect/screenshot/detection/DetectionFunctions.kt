@@ -919,6 +919,12 @@ class DetectionFunctions(private val activity: MainActivity) {
         /** 录屏/投屏服务运行中检测的轮询间隔 */
         private const val RECORDING_SERVICE_POLL_INTERVAL_MS = 1_000L
 
+        /**
+         * 三方能力面(通知监听/截屏通道/悬浮窗授权)轮询间隔：与投屏授权
+         * 检测同节奏(15s)——能力面低频变化，无需秒级轮询
+         */
+        private const val CAPABILITY_POLL_INTERVAL_MS = 15_000L
+
         /** 投屏持久授权缓存有效期(能力面低频变化，避免秒级轮询重复全量枚举) */
         private const val PROJECTION_CONSENT_CACHE_TTL_MS = 10_000L
 
@@ -1118,6 +1124,62 @@ class DetectionFunctions(private val activity: MainActivity) {
     fun stopRecordingServiceDetection() {
         recordingServiceJob?.cancel()
         recordingServiceJob = null
+    }
+
+    // ---------- 三方能力面检测(通知监听/截屏通道/悬浮窗授权，可疑痕迹类) ----------
+
+    /** 引用计数：三项共用同一轮询(NOTIFICATION_LISTENER/CAPTURE_CHANNEL/OVERLAY_CAPABLE) */
+    private var capabilityDetectionRefCount = 0
+
+    private var capabilityDetectionJob: Job? = null
+
+    /**
+     * 三方能力面共享轮询：NOTIFICATION_LISTENER(已启用通知监听)、
+     * CAPTURE_CHANNEL(清单声明截屏前台服务权限)、OVERLAY_CAPABLE(持有悬浮窗
+     * 特殊授权)三个检测项共用一个 15s 轮询任务(与投屏授权检测同节奏——能力面
+     * 低频变化)。三项的 start 均路由至此，调用方(HomeCompose)对全部检测项
+     * 注入同一 onIssue lambda，故首个注册的回调即可正确路由三项上报
+     * (与 startWindowDetection 的多枚举共用模式一致)。均为能力面信号：
+     * 通道存在 ≠ 行为发生，故归类"可疑痕迹"。
+     */
+    fun startThirdPartyCapabilityDetection(onIssue: (DetectionItems, String?) -> Unit) {
+        capabilityDetectionRefCount++
+        if (capabilityDetectionRefCount > 1 || capabilityDetectionJob != null) {
+            return
+        }
+        capabilityDetectionJob = CoroutineScope(Dispatchers.IO).launch {
+            while (isActive) {
+                reportThirdPartyCapabilities(onIssue)
+                delay(CAPABILITY_POLL_INTERVAL_MS.milliseconds)
+            }
+        }
+    }
+
+    fun stopThirdPartyCapabilityDetection() {
+        if (capabilityDetectionRefCount > 0) capabilityDetectionRefCount--
+        if (capabilityDetectionRefCount > 0) return
+        capabilityDetectionJob?.cancel()
+        capabilityDetectionJob = null
+    }
+
+    /** 一次轮询上报三项能力面(任一命中才上报，详情 = 数量 + 最多 5 个包名) */
+    private suspend fun reportThirdPartyCapabilities(onIssue: (DetectionItems, String?) -> Unit) {
+        val reports = listOf(
+            DetectionItems.NOTIFICATION_LISTENER to Auxiliary.thirdPartyNotificationListeners(activity),
+            DetectionItems.CAPTURE_CHANNEL to Auxiliary.screenCaptureChannelApps(activity),
+            DetectionItems.OVERLAY_CAPABLE to Auxiliary.overlayCapableApps(activity)
+        )
+        for ((item, pkgs) in reports) {
+            if (pkgs.isEmpty()) continue
+            val detail = activity.getString(
+                R.string.third_party_apps_detail,
+                pkgs.size,
+                pkgs.take(5).joinToString(", ")
+            )
+            withContext(Dispatchers.Main) {
+                onIssue(item, detail)
+            }
+        }
     }
 
     /** 交叉查询：常驻通知应用 ∩ (虚拟显示器归属 ∪ 投屏持久授权)，排除自身/SystemUI */
@@ -1630,6 +1692,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopMediaProjectionDetection()
         stopMediaRouterDetection()
         stopMediaLibraryDetection()
+        stopVideoMediaLibraryDetection()
         stopFileChangesDetection()
         stopBehaviorDetection()
         stopEnvironmentDetection()
@@ -1638,7 +1701,9 @@ class DetectionFunctions(private val activity: MainActivity) {
         stopProjectionConsentDetection()
         stopAudioRecordingDetection()
         stopRecordingServiceDetection()
+        stopThirdPartyCapabilityDetection()
         windowDetectionRefCount = 0
+        capabilityDetectionRefCount = 0
         teardownWindowDetection()
     }
 }

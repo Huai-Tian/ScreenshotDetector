@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -90,7 +91,8 @@ private val IssueCardColor = Color(0xFFE0E0E0)
 @Composable
 fun HomeCompose(
     activity: MainActivity,
-    issues: SnapshotStateMap<DetectionItems, String?>
+    issues: SnapshotStateMap<DetectionItems, String?>,
+    suspicions: SnapshotStateMap<DetectionItems, String?>
 ) {
     val context = LocalContext.current
 
@@ -98,6 +100,14 @@ fun HomeCompose(
     var agreement by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf(false) }
     var openSource by remember { mutableStateOf(false) }
+
+    // ========== 可疑痕迹弹层(顶栏眼睛按钮，仅有命中时可见) ==========
+    var suspiciousExpanded by remember { mutableStateOf(false) }
+
+    /** 上报路由：可疑痕迹类入独立容器(眼睛按钮展示)，确定性事件入主列表 */
+    fun routeIssue(item: DetectionItems, detail: String?) {
+        if (item.isSuspicious) suspicions[item] = detail else issues[item] = detail
+    }
 
     // ========== 权限状态面板(顶栏安全等级图标入口) ==========
     var permExpanded by remember { mutableStateOf(false) }
@@ -129,12 +139,12 @@ fun HomeCompose(
             val videoNow = Auxiliary.hasVideoPermission(activity)
             if (imagesNow && !imagesGranted) {
                 DetectionItems.MEDIA_LIBRARY.start(activity.detectionFunctions) { item, detail ->
-                    issues[item] = detail
+                    routeIssue(item, detail)
                 }
             }
             if (videoNow && !videoGranted) {
                 DetectionItems.VIDEO_MEDIA_LIBRARY.start(activity.detectionFunctions) { item, detail ->
-                    issues[item] = detail
+                    routeIssue(item, detail)
                 }
             }
             imagesGranted = imagesNow
@@ -159,9 +169,10 @@ fun HomeCompose(
     fun startAllDetections() {
         stopAllDetections()
         issues.clear()
+        suspicions.clear()
         DetectionItems.entries.forEach { entry ->
             entry.start(activity.detectionFunctions) { item, detail ->
-                issues[item] = detail
+                routeIssue(item, detail)
             }
         }
     }
@@ -169,7 +180,7 @@ fun HomeCompose(
     DisposableEffect(Unit) {
         startAllDetections()
         activity.detectionFunctions.setEnvironmentClearCallback { item ->
-            issues.remove(item)
+            if (item.isSuspicious) suspicions.remove(item) else issues.remove(item)
         }
         onDispose { stopAllDetections() }
     }
@@ -179,6 +190,16 @@ fun HomeCompose(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
+                    // 可疑痕迹入口(眼睛)：仅有可疑命中时可见，点击弹层展示全部
+                    // 可疑痕迹卡片，不占用主异常列表(见 DetectionItems.isSuspicious)
+                    if (suspicions.isNotEmpty()) {
+                        IconButton(onClick = { suspiciousExpanded = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Visibility,
+                                contentDescription = stringResource(R.string.suspicious_findings)
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { permExpanded = true }) {
                             Icon(
@@ -437,6 +458,49 @@ fun HomeCompose(
                         ) {
                             Text("GitHub", fontSize = 11.sp)
                         }
+                    }
+                }
+            }
+        }
+    }
+    if (suspiciousExpanded && suspicions.isNotEmpty()) {
+        Dialog(onDismissRequest = { suspiciousExpanded = false }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.suspicious_findings),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(weight = 1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        suspicions.forEach { (item, detail) ->
+                            IssueCard(item, detail)
+                        }
+                    }
+                    Button(
+                        onClick = { suspiciousExpanded = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                    ) {
+                        Text(stringResource(R.string.close))
                     }
                 }
             }

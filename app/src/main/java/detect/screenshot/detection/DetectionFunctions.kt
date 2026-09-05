@@ -1200,6 +1200,7 @@ class DetectionFunctions(private val activity: MainActivity) {
     private fun virtualDisplayOwners(): Set<String> {
         val dm = activity.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         return dm.displays
+            .asSequence()
             .filter { it.displayId != Display.DEFAULT_DISPLAY }
             .mapNotNull { displayInfo(it.displayId) }
             .mapNotNull { infoString(it, "ownerPackageName") }

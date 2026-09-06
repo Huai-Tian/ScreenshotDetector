@@ -59,6 +59,7 @@ import androidx.core.net.toUri
  *
  * 由 MainActivity 持有单一实例，生命周期与 Activity 一致。
  */
+@SuppressLint("PrivateApi")
 class DetectionFunctions(private val activity: MainActivity) {
 
     // ---------- 运行期状态 ----------
@@ -72,6 +73,17 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var pendingMediaLibraryCallback: ((DetectionItems, String?) -> Unit)? = null
     private var videoMediaLibraryObserver: ContentObserver? = null
     private var pendingVideoLibraryCallback: ((DetectionItems, String?) -> Unit)? = null
+
+    /** 媒体扫描防抖调度(主线程 Handler)：一次落盘触发多次 onChange，见 MEDIA_SCAN_DEBOUNCE_MS */
+    private val mediaScanHandler = Handler(Looper.getMainLooper())
+
+    /** 待执行(防抖中)的图片扫描与执行中的图片扫描任务 */
+    private var screenshotScanPending: Runnable? = null
+    private var screenshotScanJob: Job? = null
+
+    /** 待执行(防抖中)的视频扫描与执行中的视频扫描任务 */
+    private var recordingScanPending: Runnable? = null
+    private var recordingScanJob: Job? = null
     private var fileObserver: FileObserver? = null
     private var extraFileObservers = mutableListOf<FileObserver>()
     private var lastFileObserverTime = 0L
@@ -80,7 +92,14 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var environmentObserver: ContentObserver? = null
     private var accessibilityListener: AccessibilityManager.AccessibilityStateChangeListener? = null
     private var environmentIssueCallback: ((DetectionItems, String?) -> Unit)? = null
-    private var environmentPollingJob: Job? = null
+    /** 环境快速轮询(200ms，仅无障碍，见 startEnvironmentDetection 注释) */
+    private var environmentFastJob: Job? = null
+
+    /** 环境慢速轮询(2s，全量，见 startEnvironmentDetection 注释) */
+    private var environmentSlowJob: Job? = null
+
+    /** Settings 观察者/冷启动触发的单次全量环境查询(IO 线程，可取消去重) */
+    private var environmentCheckJob: Job? = null
 
     /** 无障碍项的"状态清除"回调(HomePage 注入)：服务全部停用后移除卡片 */
     private var environmentClearCallback: ((DetectionItems) -> Unit)? = null
@@ -93,18 +112,24 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ========== Miracast(WFD) 状态广播接收器 ==========
     private var wifiDisplayStatusReceiver: BroadcastReceiver? = null
 
+    // ========== ScreenshotFaker 包变化广播接收器(见 startScreenshotFakerDetection) ==========
+    private var fakerPackageReceiver: BroadcastReceiver? = null
+
     // ========== 录屏/投屏服务运行中检测(通知使用权增强) ==========
     private var recordingServiceJob: Job? = null
 
+    // ========== 能力面扫描缓存(投屏授权/截屏通道/悬浮窗共用单次包枚举) ==========
     /**
-     * 投屏持久授权查询缓存：全量包枚举 + 逐包 AppOps 查询代价高，
-     * 供录屏服务秒级轮询与授权检测 15s 轮询复用(能力面低频变化)
+     * 能力面扫描缓存：全量包枚举 + 逐包 AppOps 查询代价高(数百包 × 多次
+     * 反射调用)，投屏授权 15s 轮询、三方能力面 15s 轮询、录屏服务秒级
+     * 轮询三个消费方共享——TTL 内只枚举一次(旧实现三路各自枚举，每 15s
+     * 达 3 次全量 getInstalledPackages)。
      */
     @Volatile
-    private var projectionConsentCache: List<String> = emptyList()
+    private var capabilityScanCache: Auxiliary.CapabilityScan? = null
 
     @Volatile
-    private var projectionConsentCacheAtMs = 0L
+    private var capabilityScanCacheAtMs = 0L
 
     // ========== 设备录音活动回调 ==========
     private var audioRecordingCallback: AudioManager.AudioRecordingCallback? = null
@@ -120,8 +145,12 @@ class DetectionFunctions(private val activity: MainActivity) {
         runCatching { HiddenApiBypass.addHiddenApiExemptions("") }
     }
 
-    // ========== 窗口反射检测(自由小窗/系统级悬浮窗) ==========
-    /** 引用计数：FREEFORM_WINDOW 与 SYSTEM_FLOATING_WINDOW 共用同一轮询 */
+    // ========== 窗口反射检测(焦点/小窗/悬浮窗/呈现完整性) ==========
+    /**
+     * 引用计数：FOCUS_LOSS / FLOATING_WINDOW / FREEFORM_WINDOW /
+     * WINDOW_NOT_FULLY_PRESENTED / ACCESSIBILITY_OVERLAY 共用同一轮询
+     * (多枚举共用模式，各枚举的 start 均路由至 startWindowDetection)
+     */
     private var windowDetectionRefCount = 0
     private var windowPollingJob: Job? = null
     private var windowReflectionDetector: WindowReflectionDetector? = null
@@ -356,6 +385,22 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     // ---------- 显示器归因(隐藏 API DisplayInfo，经 HiddenApiBypass 反射) ----------
 
+    /** DisplayManagerGlobal 单例(进程级单例，反射缓存一次) */
+    private val displayManagerGlobal: Any? by lazy {
+        runCatching {
+            Class.forName("android.hardware.display.DisplayManagerGlobal")
+                .getMethod("getInstance").invoke(null)
+        }.getOrNull()
+    }
+
+    /** getDisplayInfo 方法缓存(录屏服务轮询每秒逐显示器调用，反射查找昂贵) */
+    private val getDisplayInfoMethod: java.lang.reflect.Method? by lazy {
+        runCatching {
+            Class.forName("android.hardware.display.DisplayManagerGlobal")
+                .getMethod("getDisplayInfo", Int::class.javaPrimitiveType)
+        }.getOrNull()
+    }
+
     /**
      * 反射 DisplayManagerGlobal.getDisplayInfo(displayId) 获取显示器归因信息。
      * 服务端可见性与 getDisplays 同门(私有显示器本就不可见，无新增盲区)；
@@ -364,16 +409,29 @@ class DetectionFunctions(private val activity: MainActivity) {
      */
     @SuppressLint("PrivateApi")
     private fun displayInfo(displayId: Int): Any? = runCatching {
-        val cls = Class.forName("android.hardware.display.DisplayManagerGlobal")
-        val instance = cls.getMethod("getInstance").invoke(null)
-        cls.getMethod("getDisplayInfo", Int::class.javaPrimitiveType).invoke(instance, displayId)
+        getDisplayInfoMethod?.invoke(displayManagerGlobal, displayId)
     }.getOrNull()
 
+    /** DisplayInfo 字段缓存(getField 查找昂贵，ownerPackageName 每秒查询) */
+    private val displayInfoFields =
+        java.util.concurrent.ConcurrentHashMap<String, java.lang.reflect.Field>()
+
+    private fun infoField(info: Any, field: String): java.lang.reflect.Field? {
+        displayInfoFields[field]?.let { return it }
+        val resolved = runCatching { info.javaClass.getField(field) }.getOrNull()
+        if (resolved != null) displayInfoFields[field] = resolved
+        return resolved
+    }
+
     private fun infoInt(info: Any, field: String): Int? =
-        runCatching { info.javaClass.getField(field).get(info) as? Int }.getOrNull()
+        infoField(info, field)?.let { f ->
+            runCatching { f.get(info) as? Int }.getOrNull()
+        }
 
     private fun infoString(info: Any, field: String): String? =
-        runCatching { info.javaClass.getField(field).get(info) as? String }.getOrNull()
+        infoField(info, field)?.let { f ->
+            runCatching { f.get(info) as? String }.getOrNull()
+        }
 
     /** 显示器归因描述(卡片详情行)：类型 + 虚拟显示器创建者包名 + 安全模式标记 */
     private fun describeDisplayInfo(info: Any): String {
@@ -664,7 +722,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         if (mediaLibraryObserver != null) return
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                reportScreenshotSignals(onIssue)
+                scheduleScreenshotScan(onIssue)
             }
         }
         mediaLibraryObserver = observer
@@ -681,20 +739,41 @@ class DetectionFunctions(private val activity: MainActivity) {
         }
         // 冷启动回查：ContentObserver 只覆盖注册后的变化，注册时补查一次
         // (checkForScreenshot 自带 15s 回看窗口)，覆盖"打开本应用前 ≤15s 的截图"
-        reportScreenshotSignals(onIssue)
+        runScreenshotScan(onIssue)
     }
 
-    /** 图片库双信号路由(见 startMediaLibraryDetection 文档) */
-    private fun reportScreenshotSignals(onIssue: (DetectionItems, String?) -> Unit) {
-        Auxiliary.checkForScreenshot(
-            activity,
-            resetWatermarkMs / 1000
-        ) { featureHit, featureOwner, shellShot ->
-            if (featureHit) {
-                onIssue(DetectionItems.MEDIA_LIBRARY, describeScreenshotOwner(featureOwner))
+    /**
+     * 图片库双信号扫描(路由见 startMediaLibraryDetection 文档)：多卷×多集合
+     * 的 Binder+SQLite 查询在 IO 线程执行，结果回主线程上报(写 Compose 状态)。
+     */
+    private fun runScreenshotScan(onIssue: (DetectionItems, String?) -> Unit) {
+        screenshotScanJob?.cancel()
+        screenshotScanJob = CoroutineScope(Dispatchers.IO).launch {
+            val outcome = Auxiliary.checkForScreenshot(activity, resetWatermarkMs / 1000)
+            withContext(Dispatchers.Main) {
+                if (outcome.featureHit) {
+                    onIssue(DetectionItems.MEDIA_LIBRARY, describeScreenshotOwner(outcome.featureOwner))
+                }
+                outcome.shellFile?.let {
+                    onIssue(DetectionItems.SHELL_SCREENSHOT, describeShellShot(it))
+                }
             }
-            shellShot?.let { onIssue(DetectionItems.SHELL_SCREENSHOT, describeShellShot(it)) }
         }
+    }
+
+    /**
+     * 防抖调度图片扫描：一次落盘会触发多次 onChange(pending 插入/settled
+     * 更新/缩略图生成)，突发合并为静默 300ms 后的单次扫描(扫描自带 15s
+     * 回看窗口，延迟无害)。
+     */
+    private fun scheduleScreenshotScan(onIssue: (DetectionItems, String?) -> Unit) {
+        screenshotScanPending?.let { mediaScanHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            screenshotScanPending = null
+            runScreenshotScan(onIssue)
+        }
+        screenshotScanPending = runnable
+        mediaScanHandler.postDelayed(runnable, MEDIA_SCAN_DEBOUNCE_MS)
     }
 
     /**
@@ -713,6 +792,10 @@ class DetectionFunctions(private val activity: MainActivity) {
             activity.contentResolver.unregisterContentObserver(it)
             mediaLibraryObserver = null
         }
+        screenshotScanPending?.let { mediaScanHandler.removeCallbacks(it) }
+        screenshotScanPending = null
+        screenshotScanJob?.cancel()
+        screenshotScanJob = null
     }
 
     /**
@@ -741,7 +824,7 @@ class DetectionFunctions(private val activity: MainActivity) {
         if (videoMediaLibraryObserver != null) return
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                reportVideoSignals(onIssue)
+                scheduleRecordingScan(onIssue)
             }
         }
         videoMediaLibraryObserver = observer
@@ -754,25 +837,37 @@ class DetectionFunctions(private val activity: MainActivity) {
                 activity.contentResolver.registerContentObserver(uri, true, observer)
             }
         }
-        reportVideoSignals(onIssue)
+        runRecordingScan(onIssue)
     }
 
-    /** 视频库双信号路由(见 startVideoMediaLibraryDetection 文档) */
-    private fun reportVideoSignals(onIssue: (DetectionItems, String?) -> Unit) {
-        Auxiliary.checkForScreenRecordingVideo(
-            activity,
-            resetWatermarkMs / 1000
-        ) { featureHit, featureOwner, shellRecording ->
-            if (featureHit) {
-                onIssue(
-                    DetectionItems.VIDEO_MEDIA_LIBRARY,
-                    featureOwner?.let { describeMediaOwner(it) }
-                )
-            }
-            shellRecording?.let {
-                onIssue(DetectionItems.SHELL_RECORDING, describeShellRecording(it))
+    /** 视频库双信号扫描(路由见 startVideoMediaLibraryDetection 文档)：IO 线程执行，结果回主线程上报 */
+    private fun runRecordingScan(onIssue: (DetectionItems, String?) -> Unit) {
+        recordingScanJob?.cancel()
+        recordingScanJob = CoroutineScope(Dispatchers.IO).launch {
+            val outcome = Auxiliary.checkForScreenRecordingVideo(activity, resetWatermarkMs / 1000)
+            withContext(Dispatchers.Main) {
+                if (outcome.featureHit) {
+                    onIssue(
+                        DetectionItems.VIDEO_MEDIA_LIBRARY,
+                        outcome.featureOwner?.let { describeMediaOwner(it) }
+                    )
+                }
+                outcome.shellFile?.let {
+                    onIssue(DetectionItems.SHELL_RECORDING, describeShellRecording(it))
+                }
             }
         }
+    }
+
+    /** 防抖调度视频扫描(语义见 scheduleScreenshotScan) */
+    private fun scheduleRecordingScan(onIssue: (DetectionItems, String?) -> Unit) {
+        recordingScanPending?.let { mediaScanHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            recordingScanPending = null
+            runRecordingScan(onIssue)
+        }
+        recordingScanPending = runnable
+        mediaScanHandler.postDelayed(runnable, MEDIA_SCAN_DEBOUNCE_MS)
     }
 
     fun stopVideoMediaLibraryDetection() {
@@ -780,6 +875,10 @@ class DetectionFunctions(private val activity: MainActivity) {
             activity.contentResolver.unregisterContentObserver(it)
             videoMediaLibraryObserver = null
         }
+        recordingScanPending?.let { mediaScanHandler.removeCallbacks(it) }
+        recordingScanPending = null
+        recordingScanJob?.cancel()
+        recordingScanJob = null
     }
 
     // ---------- FileObserver 检测 ----------
@@ -854,7 +953,7 @@ class DetectionFunctions(private val activity: MainActivity) {
 
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                checkEnvironmentState()
+                checkEnvironmentStateAsync()
             }
         }
         environmentObserver = observer
@@ -866,20 +965,45 @@ class DetectionFunctions(private val activity: MainActivity) {
 
         val am = activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
         val listener = AccessibilityManager.AccessibilityStateChangeListener {
-            checkEnvironmentState()
+            checkEnvironmentStateAsync()
         }
         accessibilityListener = listener
         am.addAccessibilityStateChangeListener(listener)
 
-        // 无障碍状态轮询(200ms)：已启用服务集合存于 Settings.Secure，
-        // Global 观察者与全局开关监听均不覆盖"服务集合变化"；此外开关操作
-        // 必然发生在本应用后台(需前往设置)，事件回调对后台应用不可靠。
-        // getEnabledAccessibilityServiceList 为实时 Binder 查询(无客户端
-        // 缓存，经 AOSP 源码核实)，轮询保证前后台状态即时同步(在设置里
-        // 开关无障碍后返回即已刷新)
-        environmentPollingJob = CoroutineScope(Dispatchers.IO).launch {
+        // 双速轮询(拆分自旧 200ms 全量轮询，Binder 调用量降一个量级)：
+        // - 200ms 快速环仅查无障碍——唯一需要前后台实时同步的状态：开关
+        //   操作必然发生在本应用后台(需前往设置)，事件回调对后台应用不可靠，
+        //   且已启用服务集合的变化无观察者可用；getEnabledAccessibility
+        //   ServiceList 为实时 Binder 查询(无客户端缓存，经 AOSP 源码核实)；
+        // - 2s 慢速环跑全量：Settings.Global 键已有上方观察者即时覆盖，
+        //   慢速环兜底 Settings.Secure 键(输入法/自动填充等，无观察者)与
+        //   低频漂移。
+        environmentFastJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
                 delay(ENVIRONMENT_POLL_INTERVAL_MS.milliseconds)
+                // 查询失败跳过本轮：保持既有状态，不误清卡片
+                val packages = runCatching {
+                    Auxiliary.enabledThirdPartyAccessibilityPackages(activity)
+                }.getOrNull() ?: continue
+                withContext(Dispatchers.Main) {
+                    if (packages.isEmpty()) {
+                        environmentClearCallback?.invoke(DetectionItems.ACCESSIBILITY_SERVICE)
+                    } else {
+                        environmentIssueCallback?.invoke(
+                            DetectionItems.ACCESSIBILITY_SERVICE,
+                            activity.getString(
+                                R.string.accessibility_service_detail,
+                                packages.size,
+                                packages.take(5).joinToString(", ")
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        environmentSlowJob = CoroutineScope(Dispatchers.IO).launch {
+            while (isActive) {
+                delay(ENVIRONMENT_SLOW_POLL_INTERVAL_MS.milliseconds)
                 val issues = runCatching { Auxiliary.environmentIssues(activity) }
                     .getOrNull() ?: continue
                 withContext(Dispatchers.Main) {
@@ -887,7 +1011,7 @@ class DetectionFunctions(private val activity: MainActivity) {
                 }
             }
         }
-        checkEnvironmentState()
+        checkEnvironmentStateAsync()
     }
 
     /** 注入环境项状态清除回调(无障碍项实时刷新：服务全部停用后移除卡片) */
@@ -905,15 +1029,31 @@ class DetectionFunctions(private val activity: MainActivity) {
             am.removeAccessibilityStateChangeListener(it)
             accessibilityListener = null
         }
-        environmentPollingJob?.cancel()
-        environmentPollingJob = null
+        environmentFastJob?.cancel()
+        environmentFastJob = null
+        environmentSlowJob?.cancel()
+        environmentSlowJob = null
+        environmentCheckJob?.cancel()
+        environmentCheckJob = null
         environmentIssueCallback = null
         // environmentClearCallback 有意保留：需跨停止/重启周期存活
         // ("重新检测"会 stop+start)，由页面生命周期负责注入
     }
 
-    private fun checkEnvironmentState() {
-        reportEnvironmentState(Auxiliary.environmentIssues(activity))
+    /**
+     * 全量环境查询(Settings 观察者回调/无障碍开关回调/冷启动)：约 10 个
+     * Binder 调用，IO 线程执行、结果回主线程；取消前次未完成的查询去重
+     * (Settings 连续变化时只保留最新一次)。
+     */
+    private fun checkEnvironmentStateAsync() {
+        environmentCheckJob?.cancel()
+        environmentCheckJob = CoroutineScope(Dispatchers.IO).launch {
+            val issues = runCatching { Auxiliary.environmentIssues(activity) }
+                .getOrNull() ?: return@launch
+            withContext(Dispatchers.Main) {
+                reportEnvironmentState(issues)
+            }
+        }
     }
 
     /**
@@ -1023,12 +1163,6 @@ class DetectionFunctions(private val activity: MainActivity) {
         private const val ACTION_WIFI_DISPLAY_STATUS_CHANGED =
             "android.hardware.display.action.WIFI_DISPLAY_STATUS_CHANGED"
 
-        /** 隐藏 AppOps 字符串：投屏持久授权(AppOpsManager.OPSTR_PROJECT_MEDIA) */
-        private const val OPSTR_PROJECT_MEDIA = "android:project_media"
-
-        /** 隐藏 AppOps 字符串：音频投屏持久授权(OPSTR_PROJECT_AUDIO) */
-        private const val OPSTR_PROJECT_AUDIO = "android:project_audio"
-
         /** 隐藏 AppOps 字符串：麦克风运行时权限(RECORD_AUDIO 对应 op) */
         private const val OPSTR_RECORD_AUDIO = "android:record_audio"
 
@@ -1044,8 +1178,17 @@ class DetectionFunctions(private val activity: MainActivity) {
          */
         private const val CAPABILITY_POLL_INTERVAL_MS = 15_000L
 
-        /** 投屏持久授权缓存有效期(能力面低频变化，避免秒级轮询重复全量枚举) */
-        private const val PROJECTION_CONSENT_CACHE_TTL_MS = 10_000L
+        /**
+         * 能力面统一扫描缓存有效期：投屏授权 15s 轮询、三方能力面 15s
+         * 轮询、录屏服务秒级轮询共享缓存，TTL 内只做一次全量包枚举
+         */
+        private const val CAPABILITY_SCAN_CACHE_TTL_MS = 10_000L
+
+        /**
+         * 媒体扫描防抖窗口：一次落盘触发多次 onChange(pending 插入/
+         * settled 更新/缩略图生成)，突发合并为静默后的单次全卷扫描
+         */
+        private const val MEDIA_SCAN_DEBOUNCE_MS = 300L
 
         /** 可信呈现 bootstrap 超时：正常无遮挡启动 ~0.5s 内必收到 true 回调(服务端 375ms 重算 + 250ms 稳定阈值)，留足余量防首帧卡顿误报 */
         private const val TRUSTED_PRESENTATION_BOOTSTRAP_MS = 3_000L
@@ -1053,8 +1196,11 @@ class DetectionFunctions(private val activity: MainActivity) {
         /** 文件监听冷启动回看窗口(与媒体库截图判定窗口 Auxiliary.SCREENSHOT_TIME_THRESHOLD 对齐) */
         private const val FILE_LOOKBACK_MS = 15_000L
 
-        /** 环境状态轮询间隔(无障碍实时刷新：在设置中开关后返回即已同步) */
+        /** 环境快速轮询间隔(仅无障碍，见 startEnvironmentDetection 注释) */
         private const val ENVIRONMENT_POLL_INTERVAL_MS = 200L
+
+        /** 环境慢速轮询间隔(全量环境项，见 startEnvironmentDetection 注释) */
+        private const val ENVIRONMENT_SLOW_POLL_INTERVAL_MS = 2_000L
 
         /** SystemUI 包名(排除其瞬态 UI 对录音归因的干扰) */
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
@@ -1101,22 +1247,48 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     // ---------- ScreenshotFaker检测 ----------
+    /**
+     * 包存在性检测(安装包 fake.screenshot)：初始检查 + 包增删/替换广播
+     * 驱动重查。包存在性是离散事件而非连续状态，广播即时检出取代旧 5s
+     * 轮询(消除常驻 Binder 调用)；接收器按 data uri 的包名过滤，仅目标
+     * 包变化才重查(包广播为受保护系统广播，NOT_EXPORTED 接收器可收)。
+     * 初始检查在 IO 线程执行 Binder 查询，结果回主线程；接收器注册失败
+     * (极端 ROM)时仅保留初始检查(每次"重新检测"都会重查)。
+     */
     fun startScreenshotFakerDetection(onDetected: (String?) -> Unit) {
         stopScreenshotFakerDetection()
         screenshotFakerCheckJob = CoroutineScope(Dispatchers.IO).launch {
-            while (isActive) {
-                val trace = Auxiliary.screenshotFakerTrace(activity)
-                if (trace != null) {
-                    withContext(Dispatchers.Main) {
-                        onDetected(trace)
-                    }
-                }
-                delay(5000.milliseconds)
+            val trace = Auxiliary.screenshotFakerTrace(activity)
+            if (trace != null) {
+                withContext(Dispatchers.Main) { onDetected(trace) }
             }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.data?.schemeSpecificPart != Auxiliary.SCREENSHOT_FAKER_PACKAGE) return
+                // onReceive 已在主线程，直接上报(幂等)
+                Auxiliary.screenshotFakerTrace(activity)?.let { onDetected(it) }
+            }
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                activity,
+                receiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_PACKAGE_ADDED)
+                    addAction(Intent.ACTION_PACKAGE_REMOVED)
+                    addAction(Intent.ACTION_PACKAGE_REPLACED)
+                    addDataScheme("package")
+                },
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            fakerPackageReceiver = receiver
         }
     }
 
     fun stopScreenshotFakerDetection() {
+        fakerPackageReceiver?.let { runCatching { activity.unregisterReceiver(it) } }
+        fakerPackageReceiver = null
         screenshotFakerCheckJob?.cancel()
         screenshotFakerCheckJob = null
     }
@@ -1175,12 +1347,11 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- 免询问投屏授权检测(隐藏 AppOps 字符串 android:project_media) ----------
 
     /**
-     * 枚举已安装应用，查询 project_media / project_audio 的 AppOps 模式：
+     * 免询问投屏授权检测：查询 project_media / project_audio 的 AppOps 模式，
      * 任一为 MODE_ALLOWED 表示该应用持有免用户询问直接投屏(视频/音频)的
-     * 持久授权(MediaProjection 复用授权流程写入)。
-     * checkOpNoThrow 服务端无越包校验(经 AOSP 源码核实，getPackagesForOps 等
-     * 统计接口才会被 GET_APP_OPS_STATS 拦截)；全量包枚举依赖 QUERY_ALL_PACKAGES。
-     * 语义为"能力面"而非进行时，故低频轮询(15s)。
+     * 持久授权(MediaProjection 复用授权流程写入)。经能力面统一扫描缓存
+     * (单次包枚举三路复用，见 capabilityScanCached)；全量包枚举依赖
+     * QUERY_ALL_PACKAGES。语义为"能力面"而非进行时，故低频轮询(15s)。
      */
     fun startProjectionConsentDetection(onIssue: (DetectionItems, String?) -> Unit) {
         stopProjectionConsentDetection()
@@ -1283,10 +1454,11 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     /** 一次轮询上报三项能力面(任一命中才上报，详情 = 数量 + 最多 5 个包名) */
     private suspend fun reportThirdPartyCapabilities(onIssue: (DetectionItems, String?) -> Unit) {
+        val scan = capabilityScanCached()
         val reports = listOf(
             DetectionItems.NOTIFICATION_LISTENER to Auxiliary.thirdPartyNotificationListeners(activity),
-            DetectionItems.CAPTURE_CHANNEL to Auxiliary.screenCaptureChannelApps(activity),
-            DetectionItems.OVERLAY_CAPABLE to Auxiliary.overlayCapableApps(activity)
+            DetectionItems.CAPTURE_CHANNEL to scan.captureChannel,
+            DetectionItems.OVERLAY_CAPABLE to scan.overlayCapable
         )
         for ((item, pkgs) in reports) {
             if (pkgs.isEmpty()) continue
@@ -1322,49 +1494,22 @@ class DetectionFunctions(private val activity: MainActivity) {
             .toSet()
     }
 
-    /** 带缓存的投屏持久授权查询(见缓存字段注释) */
-    private fun cachedProjectionConsent(): List<String> {
+    /** 带缓存的能力面统一扫描(见缓存字段注释) */
+    private fun capabilityScanCached(): Auxiliary.CapabilityScan {
         val now = SystemClock.elapsedRealtime()
-        if (now - projectionConsentCacheAtMs >= PROJECTION_CONSENT_CACHE_TTL_MS) {
-            projectionConsentCache = queryProjectionConsent()
-            projectionConsentCacheAtMs = now
+        val cached = capabilityScanCache
+        if (cached != null && now - capabilityScanCacheAtMs < CAPABILITY_SCAN_CACHE_TTL_MS) {
+            return cached
         }
-        return projectionConsentCache
+        val fresh = Auxiliary.capabilityScan(activity)
+        capabilityScanCache = fresh
+        capabilityScanCacheAtMs = now
+        return fresh
     }
 
-    private fun queryProjectionConsent(): List<String> = runCatching {
-        val appOps = activity.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        activity.packageManager.getInstalledPackages(0)
-            .asSequence()
-            .mapNotNull { it.applicationInfo }
-            .filter { it.packageName != activity.packageName }
-            .distinctBy { it.uid }
-            .filter {
-                checkOpNoThrow(appOps, OPSTR_PROJECT_MEDIA, it.uid, it.packageName) ==
-                        AppOpsManager.MODE_ALLOWED ||
-                        checkOpNoThrow(appOps, OPSTR_PROJECT_AUDIO, it.uid, it.packageName) ==
-                        AppOpsManager.MODE_ALLOWED
-            }
-            .map { it.packageName }
-            .toList()
-    }.getOrDefault(emptyList())
-
-    /**
-     * AppOps.checkOpNoThrow(String,int,String) 反射调用(API 30+ 公开，
-     * API 29 名为 unsafeCheckOpNoThrow；失败返回 MODE_ERRORED 即不匹配)
-     */
-    private fun checkOpNoThrow(
-        appOps: AppOpsManager,
-        op: String,
-        uid: Int,
-        packageName: String
-    ): Int = runCatching {
-        val cls = appOps.javaClass
-        val signature = arrayOf(String::class.java, Integer.TYPE, String::class.java)
-        val method = runCatching { cls.getMethod("checkOpNoThrow", *signature) }
-            .getOrElse { cls.getMethod("unsafeCheckOpNoThrow", *signature) }
-        method.invoke(appOps, op, uid, packageName) as Int
-    }.getOrDefault(AppOpsManager.MODE_ERRORED)
+    /** 投屏持久授权子集(录屏服务秒级轮询与授权检测 15s 轮询共用缓存) */
+    private fun cachedProjectionConsent(): List<String> =
+        capabilityScanCached().projectionConsent
 
     // ---------- 设备录音活动检测 ----------
 
@@ -1515,24 +1660,33 @@ class DetectionFunctions(private val activity: MainActivity) {
         val appInfo = pm.getApplicationInfo(pkg, 0)
         val appOps = activity.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = checkOpRawNoThrow(appOps, OPSTR_RECORD_AUDIO, appInfo.uid, pkg)
-            ?: checkOpNoThrow(appOps, OPSTR_RECORD_AUDIO, appInfo.uid, pkg)
+            ?: Auxiliary.checkOpNoThrow(appOps, OPSTR_RECORD_AUDIO, appInfo.uid, pkg)
         mode != AppOpsManager.MODE_IGNORED && mode != AppOpsManager.MODE_ERRORED
     }.getOrDefault(false)
 
     /**
      * AppOps 原始(未评估)模式查询：优先 checkOpRawNoThrow(新名)，
-     * 退回 unsafeCheckOpRawNoThrow(API 33 起的旧名)，均不可用返回 null。
+     * 退回 unsafeCheckOpRawNoThrow(旧名)，均不可用返回 null。
+     * Method 缓存(逐候选调用的热点路径)。
      */
+    private val checkOpRawMethod: java.lang.reflect.Method? by lazy {
+        val signature = arrayOf(String::class.java, Integer.TYPE, String::class.java)
+        runCatching {
+            AppOpsManager::class.java.getMethod("checkOpRawNoThrow", *signature)
+        }.getOrElse {
+            runCatching {
+                AppOpsManager::class.java.getMethod("unsafeCheckOpRawNoThrow", *signature)
+            }.getOrNull()
+        }
+    }
+
     private fun checkOpRawNoThrow(
         appOps: AppOpsManager,
         op: String,
         uid: Int,
         packageName: String
     ): Int? = runCatching {
-        val signature = arrayOf(String::class.java, Integer.TYPE, String::class.java)
-        val method = runCatching { appOps.javaClass.getMethod("checkOpRawNoThrow", *signature) }
-            .getOrElse { appOps.javaClass.getMethod("unsafeCheckOpRawNoThrow", *signature) }
-        method.invoke(appOps, op, uid, packageName) as? Int
+        checkOpRawMethod?.invoke(appOps, op, uid, packageName) as? Int
     }.getOrNull()
 
     /** 回看窗口内的使用候选：包名、最近使用时刻、是否存在前台服务启动事件 */
@@ -1613,8 +1767,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- 窗口反射检测(自由小窗/系统级悬浮窗，共用同一轮询) ----------
     /**
      * 启动窗口检测：按轮询间隔轮询 [WindowReflectionDetector]。
-     * 检测器基于反射信号(焦点丢失/虚拟显示器/环境探测)，不使用无障碍服务；
-     * 触摸遮挡信号由 [dispatchTouchEvent] 补充。
+     * 检测器以焦点探测为核心信号(RESUMED+亮屏但持续失焦)，归因走双路——
+     * 无障碍窗口快照(增强，可选)与用量统计(见检测器文档)；触摸遮挡信号
+     * 由 [dispatchTouchEvent] 补充，可信呈现信号由
+     * [startTrustedPresentationDetection] 补充(随本检测启停)。
      */
     fun startWindowDetection(onIssue: (DetectionItems, String?) -> Unit) {
         windowDetectionRefCount++

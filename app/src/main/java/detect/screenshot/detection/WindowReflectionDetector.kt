@@ -200,7 +200,10 @@ class WindowReflectionDetector(private val activity: MainActivity) {
         }
         unfocusedPolls++
         val threshold = if (focusEverGained) FOCUS_LOSS_THRESHOLD else FOCUS_LOSS_THRESHOLD_NEVER
-        if (unfocusedPolls >= threshold) {
+        // 达阈值后每 5 个轮询(约 1s)归因一次：归因要查用量统计(事件流+
+        // 聚合值，均为 Binder 调用)，200ms 全速归因在焦点持续丢失期间徒增
+        // 主线程负载；上报粘性幂等，降频不影响检出与详情更新
+        if (unfocusedPolls >= threshold && (unfocusedPolls - threshold) % 5 == 0) {
             // 无障碍事实归因(增强，优先于用量统计推测)：窗口快照中当前持有
             // 焦点的外部窗口即覆盖者——本应用仍 RESUMED 而焦点在他人
             accessibilityFocusAttribution()?.let { (pkg, isAppWindow) ->

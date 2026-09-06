@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -111,7 +112,12 @@ fun HomeCompose(
 
     // ========== 权限状态面板(顶栏安全等级图标入口) ==========
     var permExpanded by remember { mutableStateOf(false) }
-    var permItems by remember { mutableStateOf(queryPermItems(activity)) }
+    // 应用列表可见性探测(全量包枚举，重)与轻量权限检查分离缓存：面板
+    // 展开时 2s 刷新(用户正盯着 ColorOS 开关的效果)，收起时 15s——旧
+    // 实现每 2s 全量枚举一次，是最重的常驻负载
+    var appListGranted by remember { mutableStateOf(Auxiliary.appListVisible(activity)) }
+    var appListCheckedAtMs by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+    var permItems by remember { mutableStateOf(queryPermItems(activity, appListGranted)) }
     var imagesGranted by remember { mutableStateOf(Auxiliary.hasImagesPermission(activity)) }
     var videoGranted by remember { mutableStateOf(Auxiliary.hasVideoPermission(activity)) }
 
@@ -132,7 +138,16 @@ fun HomeCompose(
 
     LaunchedEffect(Unit) {
         while (true) {
-            val items = withContext(Dispatchers.Default) { queryPermItems(activity) }
+            val items = withContext(Dispatchers.Default) {
+                // 应用列表探测按 TTL 缓存(见上方字段注释)，其余轻量检查全速轮询
+                val now = SystemClock.elapsedRealtime()
+                val appListTtl = if (permExpanded) 2_000L else 15_000L
+                if (now - appListCheckedAtMs >= appListTtl) {
+                    appListGranted = Auxiliary.appListVisible(activity)
+                    appListCheckedAtMs = now
+                }
+                queryPermItems(activity, appListGranted)
+            }
             permItems = items
             // 权限落地即时补启对应检测(面板外授权/仅授其一的场景)
             val imagesNow = Auxiliary.hasImagesPermission(activity)
@@ -534,7 +549,8 @@ private enum class PermissionJump {
     NOTIFICATION_ACCESS
 }
 
-private fun queryPermItems(context: Context): List<PermItem> = listOf(
+/** 权限面板条目(轻量检查)；应用列表项的全量枚举结果由调用方按 TTL 缓存后传入 */
+private fun queryPermItems(context: Context, appListVisible: Boolean): List<PermItem> = listOf(
     PermItem(
         R.string.permission_photos_video,
         Auxiliary.hasMediaPermissions(context),
@@ -547,7 +563,7 @@ private fun queryPermItems(context: Context): List<PermItem> = listOf(
     ),
     PermItem(
         R.string.permission_app_list,
-        Auxiliary.appListVisible(context),
+        appListVisible,
         PermissionJump.APP_DETAILS
     ),
     PermItem(

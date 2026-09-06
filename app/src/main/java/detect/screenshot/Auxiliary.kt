@@ -27,6 +27,12 @@ private const val SCREENSHOT_TIME_THRESHOLD = 15
 /** adb shell 的 uid 归属包名(MediaProvider 写入者归因)：screencap 等命令通道 */
 private const val SHELL_PACKAGE = "com.android.shell"
 
+/** 隐藏 AppOps 字符串：投屏持久授权(视频，OPSTR_PROJECT_MEDIA) */
+private const val OPSTR_PROJECT_MEDIA = "android:project_media"
+
+/** 隐藏 AppOps 字符串：投屏持久授权(音频，OPSTR_PROJECT_AUDIO) */
+private const val OPSTR_PROJECT_AUDIO = "android:project_audio"
+
 /**
  * android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION(API 34 引入的
  * normal 权限，编译期硬编码字符串以兼容低版本 SDK)：targetSdk 34+ 的
@@ -119,6 +125,19 @@ object Auxiliary {
     }
 
     /**
+     * 媒体库扫描结果(见 [checkForScreenshot]/[checkForScreenRecordingVideo])：
+     * - [featureHit]：特征词命中([featureOwner] 为最新特征行的写入者，
+     *   归因不可用时 null，见 mediaProjection 注释)；
+     * - [shellFile]：Shell 通道(写入者 com.android.shell)命中行的文件名，
+     *   未命中为 null。
+     */
+    data class MediaScanOutcome(
+        val featureHit: Boolean = false,
+        val featureOwner: String? = null,
+        val shellFile: String? = null
+    )
+
+    /**
      * 单集合扫描：回看窗口(取"现在-15s"与重置水位线的较大值)内逐行判定
      * 两路信号，聚合进 [result]——
      * - 特征词命中([featureMatcher] 非空时)：文件名/相对路径匹配即记
@@ -192,25 +211,23 @@ object Auxiliary {
                 path.contains("screen records")
 
     /**
-     * 回看窗口内新增图片检查(两路信号，任一命中才回调)：
+     * 回看窗口内新增图片扫描(两路信号)：
      * - 截图特征：文件名/相对路径含 screenshot 即命中(featureOwner 为最新
      *   特征行的写入者)；
      * - Shell 通道：写入者 owner_package_name 为 com.android.shell(adb
      *   shell 的 uid 归属包；screencap 可写任意位置任意名，不受特征词
-     *   约束)即命中(shellShot 为该行文件名)。
+     *   约束)即命中(shellFile 为该行文件名)。
      * 逐卷扫描 Images 集合(双信号)与 Downloads 集合(Download/ 目录，仅查
      * Shell 信号并按 image/ MIME 过滤——screencap 落盘位置不受限；特征词
      * 路径不做，下载的"screenshot"命名文件非设备捕获事件)。
+     * 查询在调用线程执行(多卷×多集合的 Binder+SQLite 查询，调用方应置于
+     * IO 线程)。
      *
      * @param notBeforeSec 重置水位线(秒)：仅回查 DATE_ADDED 晚于该时刻的
      *   证据，防止用户"重置检测结果"后 15s 回看窗口内的旧截图被重新报出
      *   (媒体扫描器对旧文件的后续更新会持续触发 onChange)；0 = 不限制
      */
-    fun checkForScreenshot(
-        context: Context,
-        notBeforeSec: Long,
-        onDetected: (featureHit: Boolean, featureOwner: String?, shellShot: String?) -> Unit
-    ) {
+    fun checkForScreenshot(context: Context, notBeforeSec: Long): MediaScanOutcome {
         val result = MediaScanResult()
         val contentResolver = context.contentResolver
         for (volume in mediaVolumeNames(context)) {
@@ -231,27 +248,24 @@ object Auxiliary {
                 result
             )
         }
-        if (result.featureHit || result.shellFile != null) {
-            onDetected(result.featureHit, result.featureOwner, result.shellFile)
-        }
+        return MediaScanOutcome(result.featureHit, result.featureOwner, result.shellFile)
     }
 
     /**
-     * 回看窗口内新增录屏视频检查(两路信号，任一命中才回调)：
+     * 回看窗口内新增录屏视频扫描(两路信号)：
      * - 录屏特征：文件名/相对路径命中录屏特征词(screenrecord / 屏幕录制
      *   等，见 [isRecordingFeatureName])，featureOwner 为最新特征行写入者
      *   (归因可降级)；
      * - Shell 通道：写入者为 com.android.shell(如 adb shell screenrecord，
-     *   写入位置/命名不受特征词约束)即命中(shellRecording 为该行文件名)。
+     *   写入位置/命名不受特征词约束)即命中(shellFile 为该行文件名)。
      * 逐卷扫描 Video 集合与 Downloads 集合(Download/ 目录的视频不进
-     * Video 集合，按 video/ MIME 过滤)。
+     * Video 集合，按 video/ MIME 过滤)。查询在调用线程执行(见上)。
      * [notBeforeSec] 为重置水位线(秒)，语义见 [checkForScreenshot]。
      */
     fun checkForScreenRecordingVideo(
         context: Context,
-        notBeforeSec: Long,
-        onDetected: (featureHit: Boolean, featureOwner: String?, shellRecording: String?) -> Unit
-    ) {
+        notBeforeSec: Long
+    ): MediaScanOutcome {
         val result = MediaScanResult()
         val contentResolver = context.contentResolver
         for (volume in mediaVolumeNames(context)) {
@@ -272,9 +286,7 @@ object Auxiliary {
                 result
             )
         }
-        if (result.featureHit || result.shellFile != null) {
-            onDetected(result.featureHit, result.featureOwner, result.shellFile)
-        }
+        return MediaScanOutcome(result.featureHit, result.featureOwner, result.shellFile)
     }
 
     /**
@@ -308,28 +320,16 @@ object Auxiliary {
         ) {
             issues += DetectionItems.OVERLAY_DISPLAY to null
         }
-        val accessibilityManager =
-            context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        val enabledServices = accessibilityManager.getEnabledAccessibilityServiceList(
-            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
-        )
-        if (enabledServices.isNotEmpty()) {
-            // 注：本方法被 200ms 轮询高频调用，勿在此打日志
-            // 排除本应用自身的增强服务(用户知情开启，非环境风险)；
-            // 仅剩自身服务时整个不上报(reportEnvironmentState 的清除回调
-            // 会移除既有卡片)，卡片与详情均只反映第三方无障碍服务
-            val packages = enabledServices
-                .mapNotNull { it.resolveInfo?.serviceInfo?.packageName }
-                .filter { it != context.packageName }
-                .distinct()
-            if (packages.isNotEmpty()) {
-                // 详情 = 完整数量 + 最多 5 个包名(与投屏授权详情同格式)
-                issues += DetectionItems.ACCESSIBILITY_SERVICE to context.getString(
-                    R.string.accessibility_service_detail,
-                    packages.size,
-                    packages.take(5).joinToString(", ")
-                )
-            }
+        val accessibilityPackages = runCatching {
+            enabledThirdPartyAccessibilityPackages(context)
+        }.getOrDefault(emptyList())
+        if (accessibilityPackages.isNotEmpty()) {
+            // 详情 = 完整数量 + 最多 5 个包名(与投屏授权详情同格式)
+            issues += DetectionItems.ACCESSIBILITY_SERVICE to context.getString(
+                R.string.accessibility_service_detail,
+                accessibilityPackages.size,
+                accessibilityPackages.take(5).joinToString(", ")
+            )
         }
         // 无线显示开关(隐藏键 wifi_display_on；开启≠正在投屏，为辅助信号)，
         // 详情附 WFD 扫描到的可用对端(反射 WifiDisplayStatus.getDisplayList)
@@ -382,6 +382,23 @@ object Auxiliary {
     }
 
     /**
+     * 已启用的三方无障碍服务包名：getEnabledAccessibilityServiceList(公开
+     * API，无需权限，跨应用实时 Binder 查询、无客户端缓存)。排除本应用
+     * 自身的增强服务(用户知情开启，非环境风险)——仅剩自身服务时返回空
+     * (调用方的清除回调据此移除卡片)。查询异常向上抛，由调用方决定降级
+     * (快速轮询跳过本轮保持既有状态，全量检查按空处理)。
+     */
+    fun enabledThirdPartyAccessibilityPackages(context: Context): List<String> {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        return am.getEnabledAccessibilityServiceList(
+            AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+        )
+            .mapNotNull { it.resolveInfo?.serviceInfo?.packageName }
+            .filter { it != context.packageName }
+            .distinct()
+    }
+
+    /**
      * 读屏服务条目：设置键值形如 "包名/组件名"，取包名判定三方
      * (系统应用跳过)并生成 "当前：包名" 详情；键为空/已卸载/系统应用
      * 均返回 null 不上报。
@@ -411,56 +428,91 @@ object Auxiliary {
     }.getOrDefault(emptyList())
 
     /**
-     * 具备截屏通道的三方应用：清单声明 FOREGROUND_SERVICE_MEDIA_PROJECTION
-     * (Android 14+ 启动 MediaProjection 前台服务的强制权限，targetSdk 34+
-     * 的录屏/投屏应用必然声明)。读 requestedPermissions 原始数组而非
-     * checkPermission——权限在旧系统未定义时 checkPermission 恒拒，
-     * 清单声明读取跨版本稳定。旧 targetSdk 应用不声明此权限，不覆盖
-     * (见 README 已知限制)。
+     * AppOps 模式查询(字符串 op)。反射调用并缓存 Method(逐包调用的热点
+     * 路径，getMethod 查找昂贵)：优先 unsafeCheckOpNoThrow(公开于 API 30，
+     * API 29 运行时不存在——直接调用会抛 NoSuchMethodError 且不被
+     * catch(Exception) 捕获)，退回 checkOpNoThrow(自 API 19 起存在的隐藏
+     * 方法，运行时类恒有，经 HiddenApiBypass 豁免可达)。失败返回
+     * MODE_ERRORED 即不匹配。
      */
-    fun screenCaptureChannelApps(context: Context): List<String> = runCatching {
-        context.packageManager.getInstalledPackages(PM_GET_PERMISSIONS)
-            .asSequence()
-            .mapNotNull { pi -> pi.applicationInfo?.let { ai -> pi to ai } }
-            .filter { (pi, _) -> pi.packageName != context.packageName }
-            .filter { (_, ai) ->
-                (ai.flags and (ApplicationInfo.FLAG_SYSTEM or
-                        ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
-            }
-            .filter { (pi, _) ->
-                pi.requestedPermissions?.contains(PERMISSION_MEDIA_PROJECTION_FGS) == true
-            }
-            .map { (pi, _) -> pi.packageName }
-            .sorted()
-            .toList()
-    }.getOrDefault(emptyList())
+    private val checkOpMethod: java.lang.reflect.Method? by lazy {
+        val signature = arrayOf(String::class.java, Integer.TYPE, String::class.java)
+        runCatching {
+            AppOpsManager::class.java.getMethod("unsafeCheckOpNoThrow", *signature)
+        }.getOrElse {
+            runCatching {
+                AppOpsManager::class.java.getMethod("checkOpNoThrow", *signature)
+            }.getOrNull()
+        }
+    }
+
+    fun checkOpNoThrow(appOps: AppOpsManager, op: String, uid: Int, packageName: String): Int =
+        runCatching { checkOpMethod?.invoke(appOps, op, uid, packageName) as? Int }
+            .getOrNull()
+            ?: AppOpsManager.MODE_ERRORED
+
+    /** 能力面单次扫描的聚合结果(见 [capabilityScan]) */
+    data class CapabilityScan(
+        /** 持有免询问投屏持久授权(project_media/audio)的包名(含系统应用) */
+        val projectionConsent: List<String>,
+        /** 清单声明截屏前台服务权限的三方应用 */
+        val captureChannel: List<String>,
+        /** 持有悬浮窗特殊授权(SAW 为 MODE_ALLOWED)的三方应用 */
+        val overlayCapable: List<String>
+    )
 
     /**
-     * 可绘制悬浮窗的三方应用：持有 SYSTEM_ALERT_WINDOW 特殊授权。跨应用
-     * 判定走 AppOps(OPSTR_SYSTEM_ALERT_WINDOW 为 MODE_ALLOWED 即用户在
-     * 设置中显式开启——Settings.canDrawOverlays 仅支持自查自身，无法查他者)。
-     * 仅表能力面——授权存在不代表悬浮窗正在显示。targetSdk < 23 的旧应用
-     * 默认持有悬浮窗但 op 为 MODE_DEFAULT，不在统计内(现网已罕见)。
+     * 能力面统一扫描：单次 getInstalledPackages(GET_PERMISSIONS) 枚举产出
+     * 三组结果(旧实现三路各自枚举，每 15s 达 3 次全量枚举)——
+     * - 免询问投屏授权：project_media/project_audio 任一 MODE_ALLOWED
+     *   (AppOps 反射查询，服务端无越包校验经 AOSP 源码核实，getPackages
+     *   ForOps 等统计接口才会被 GET_APP_OPS_STATS 拦截；按 uid 去重防共享
+     *   uid 重复查询)，含系统应用；
+     * - 截屏通道：三方应用清单声明 FOREGROUND_SERVICE_MEDIA_PROJECTION
+     *   (读 requestedPermissions 原始数组而非 checkPermission——权限在旧
+     *   系统未定义时 checkPermission 恒拒，清单读取跨版本稳定)；
+     * - 悬浮窗授权：三方应用 SAW op 为 MODE_ALLOWED(设置中显式开启；
+     *   Settings.canDrawOverlays 仅支持自查自身，无法查他者)。
+     * 三方应用判定：非系统应用且非系统应用的更新(预装 Gboard 等不报，
+     * 防噪音)。旧 targetSdk 应用不声明截屏权限、targetSdk<23 默认持有
+     * 悬浮窗但 op 为 MODE_DEFAULT 不统计(见 README 已知限制)。
+     * 全量包枚举依赖 QUERY_ALL_PACKAGES。
      */
-    fun overlayCapableApps(context: Context): List<String> = runCatching {
+    fun capabilityScan(context: Context): CapabilityScan = runCatching {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        context.packageManager.getInstalledPackages(0)
+        val consent = mutableListOf<String>()
+        val channel = mutableListOf<String>()
+        val overlay = mutableListOf<String>()
+        val seenUids = HashSet<Int>()
+        context.packageManager.getInstalledPackages(PM_GET_PERMISSIONS)
             .asSequence()
-            .mapNotNull { it.applicationInfo }
             .filter { it.packageName != context.packageName }
-            .filter {
-                (it.flags and (ApplicationInfo.FLAG_SYSTEM or
-                        ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) == 0
+            .forEach { pi ->
+                val ai = pi.applicationInfo ?: return@forEach
+                val pkg = pi.packageName
+                if (seenUids.add(ai.uid) &&
+                    (checkOpNoThrow(appOps, OPSTR_PROJECT_MEDIA, ai.uid, pkg) ==
+                            AppOpsManager.MODE_ALLOWED ||
+                            checkOpNoThrow(appOps, OPSTR_PROJECT_AUDIO, ai.uid, pkg) ==
+                            AppOpsManager.MODE_ALLOWED)
+                ) {
+                    consent += pkg
+                }
+                if ((ai.flags and (ApplicationInfo.FLAG_SYSTEM or
+                            ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
+                ) return@forEach
+                if (pi.requestedPermissions?.contains(PERMISSION_MEDIA_PROJECTION_FGS) == true) {
+                    channel += pkg
+                }
+                if (checkOpNoThrow(
+                        appOps, AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, ai.uid, pkg
+                    ) == AppOpsManager.MODE_ALLOWED
+                ) {
+                    overlay += pkg
+                }
             }
-            .filter {
-                appOps.unsafeCheckOpNoThrow(
-                    AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, it.uid, it.packageName
-                ) == AppOpsManager.MODE_ALLOWED
-            }
-            .map { it.packageName }
-            .sorted()
-            .toList()
-    }.getOrDefault(emptyList())
+        CapabilityScan(consent.sorted(), channel.sorted(), overlay.sorted())
+    }.getOrDefault(CapabilityScan(emptyList(), emptyList(), emptyList()))
 
     /**
      * WFD 可用对端详情：反射 WifiDisplayStatus.getDisplayList()
@@ -518,11 +570,14 @@ object Auxiliary {
 
     /**
      * 是否已授予"使用情况访问权"(PACKAGE_USAGE_STATS 为特殊访问授权，运行时
-     * 权限接口不可查，经 AppOps OPSTR_GET_USAGE_STATS 查询)。
+     * 权限接口不可查，经 AppOps OPSTR_GET_USAGE_STATS 查询)。AppOps 查询
+     * 走 [checkOpNoThrow] 反射(unsafeCheckOpNoThrow 公开于 API 30，API 29
+     * 直接调用会抛 NoSuchMethodError)。
      */
     fun hasUsageAccess(context: Context): Boolean = try {
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        appOps.unsafeCheckOpNoThrow(
+        checkOpNoThrow(
+            appOps,
             AppOpsManager.OPSTR_GET_USAGE_STATS,
             Process.myUid(),
             context.packageName
@@ -571,16 +626,19 @@ object Auxiliary {
 
     /**
      * ScreenshotFaker 特征检查：返回命中的特征来源(安装包检测——包名
-     * fake.screenshot 的应用已安装，返回其包名)，未命中返回 null。
+     * [SCREENSHOT_FAKER_PACKAGE] 的应用已安装，返回其包名)，未命中返回 null。
      * 旧版的 Pictures/ScreenshotFaker 目录特征已移除(新版 Faker 不再
      * 使用该目录，残留目录会造成误报)。
      */
     fun screenshotFakerTrace(context: Context): String? {
         return try {
-            context.packageManager.getPackageInfo("fake.screenshot", 0)
-            "fake.screenshot"
+            context.packageManager.getPackageInfo(SCREENSHOT_FAKER_PACKAGE, 0)
+            SCREENSHOT_FAKER_PACKAGE
         } catch (_: PackageManager.NameNotFoundException) {
             null
         }
     }
+
+    /** ScreenshotFaker 的安装包名(特征检测目标，见 [screenshotFakerTrace]) */
+    const val SCREENSHOT_FAKER_PACKAGE = "fake.screenshot"
 }

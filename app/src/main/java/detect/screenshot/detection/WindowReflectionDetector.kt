@@ -37,6 +37,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
  * REAL_GET_TASKS 签名权限拦截。无障碍 getWindows 是唯一的应用层
  * 跨应用窗口枚举路径(本检测器的增强来源)。
  */
+@SuppressLint("PrivateApi", "DiscouragedPrivateApi")
 class WindowReflectionDetector(private val activity: MainActivity) {
 
     companion object {
@@ -365,16 +366,34 @@ class WindowReflectionDetector(private val activity: MainActivity) {
     fun hasOwnOverlayingWindow(): Boolean =
         ownViewRoots().any { it !== activity.window.decorView }
 
+    /** WindowManagerGlobal 单例(进程级，反射缓存一次) */
+    private val windowManagerGlobal: Any? by lazy {
+        runCatching {
+            Class.forName("android.view.WindowManagerGlobal")
+                .getMethod("getInstance").invoke(null)
+        }.getOrNull()
+    }
+
+    /** mViews 字段缓存(焦点轮询 200ms 热点路径，反射查找昂贵) */
+    private val viewsField: java.lang.reflect.Field? by lazy {
+        runCatching {
+            Class.forName("android.view.WindowManagerGlobal")
+                .getDeclaredField("mViews")
+                .apply { isAccessible = true }
+        }.getOrNull()
+    }
+
     /** 本进程内全部窗口的根 View(WindowManagerGlobal.mViews) */
     @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
     @Suppress("UNCHECKED_CAST")
-    private fun ownViewRoots(): List<View> = try {
-        val wmgClass = Class.forName("android.view.WindowManagerGlobal")
-        val instance = wmgClass.getMethod("getInstance").invoke(null)
-        (wmgClass.getDeclaredField("mViews").apply { isAccessible = true }
-            .get(instance) as? List<View>) ?: emptyList()
-    } catch (_: Exception) {
-        emptyList()
+    private fun ownViewRoots(): List<View> {
+        val instance = windowManagerGlobal ?: return emptyList()
+        val field = viewsField ?: return emptyList()
+        return try {
+            (field.get(instance) as? List<View>) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     /** 保留的日志函数：需要调试时在此恢复输出 */

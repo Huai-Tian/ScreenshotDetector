@@ -1206,13 +1206,29 @@ class DetectionFunctions(private val activity: MainActivity) {
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
     }
 
+    /** windowConfiguration 字段缓存(行为轮询每秒调用的热点反射，查找昂贵) */
+    private val windowConfigurationField: java.lang.reflect.Field? by lazy {
+        runCatching {
+            android.content.res.Configuration::class.java
+                .getField("windowConfiguration")
+        }.getOrNull()
+    }
+
+    /** getWindowingMode 方法缓存(同上，字段声明类型即 WindowConfiguration) */
+    private val getWindowingModeMethod: java.lang.reflect.Method? by lazy {
+        windowConfigurationField?.let { field ->
+            runCatching { field.type.getMethod("getWindowingMode") }.getOrNull()
+        }
+    }
+
     /** 反射读取当前窗口化形态，失败返回 null(FULLSCREEN=0，见 checkBehaviorState) */
-    private fun currentWindowingMode(): Int? = runCatching {
-        val configField =
-            android.content.res.Configuration::class.java.getField("windowConfiguration")
-        val windowConfig = configField.get(activity.resources.configuration)
-        windowConfig.javaClass.getMethod("getWindowingMode").invoke(windowConfig) as Int
-    }.getOrNull()
+    private fun currentWindowingMode(): Int? {
+        val field = windowConfigurationField ?: return null
+        val method = getWindowingModeMethod ?: return null
+        return runCatching {
+            method.invoke(field.get(activity.resources.configuration)) as Int
+        }.getOrNull()
+    }
 
     /** 窗口尺寸兜底的持续缩小计数(约 3 秒，防横竖屏切换/键盘收起等瞬态) */
     private var smallMetricsPolls = 0

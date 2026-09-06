@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
@@ -68,6 +69,7 @@ object Auxiliary {
         MediaStore.MediaColumns.DISPLAY_NAME,
         MediaStore.MediaColumns.RELATIVE_PATH,
         MediaStore.MediaColumns.DATE_ADDED,
+        MediaStore.MediaColumns.MIME_TYPE,
         "owner_package_name"
     )
 
@@ -97,106 +99,181 @@ object Auxiliary {
     }
 
     /**
+     * 媒体库卷名列表(API 30+ 枚举全部外置卷——含 SD 卡等可插拔存储的
+     * 独立卷；低版本无枚举接口退回主卷 external，非主卷媒体不可查)。
+     * 存入非主卷的截图/录屏同样构成检测证据，逐卷查询。
+     */
+    internal fun mediaVolumeNames(context: Context): List<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { MediaStore.getExternalVolumeNames(context).toList() }
+                .getOrDefault(listOf(MediaStore.VOLUME_EXTERNAL))
+        } else {
+            listOf(MediaStore.VOLUME_EXTERNAL)
+        }
+
+    /** 单集合扫描的聚合结果(见 [scanMediaCollection]) */
+    private class MediaScanResult {
+        var featureHit = false
+        var featureOwner: String? = null
+        var shellFile: String? = null
+    }
+
+    /**
+     * 单集合扫描：回看窗口(取"现在-15s"与重置水位线的较大值)内逐行判定
+     * 两路信号，聚合进 [result]——
+     * - 特征词命中([featureMatcher] 非空时)：文件名/相对路径匹配即记
+     *   featureHit，featureOwner 为最新特征行的写入者(归因不可用时 null，
+     *   见 mediaProjection 注释)；
+     * - Shell 通道：写入者为 com.android.shell 即记 shellFile(首个命中行
+     *   的文件名)，不受特征词约束(adb screencap/screenrecord 可写任意
+     *   位置任意名，故查询不按特征词过滤，判定在代码侧完成)。
+     * [mimePrefix] 非空时按 MIME_TYPE 前缀过滤(Downloads 集合混有全部
+     * 文件类型，如 "video/"——特征词命名的 pdf 等非视频文件不构成录屏
+     * 证据)；null = 不过滤(Images/Video 集合本身按类型分表)。
+     * 行按 DATE_ADDED 降序遍历。
+     */
+    private fun scanMediaCollection(
+        contentResolver: ContentResolver,
+        uri: Uri,
+        notBeforeSec: Long,
+        mimePrefix: String?,
+        featureMatcher: ((name: String, path: String) -> Boolean)?,
+        result: MediaScanResult
+    ) {
+        val timeThreshold = maxOf(
+            System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD,
+            notBeforeSec
+        )
+        val cursor = runCatching {
+            contentResolver.query(
+                uri,
+                mediaProjection,
+                mediaQueryBundle(
+                    "${MediaStore.MediaColumns.DATE_ADDED} > ?",
+                    arrayOf(timeThreshold.toString())
+                ),
+                null
+            )
+        }.getOrNull() ?: return
+        cursor.use {
+            val nameIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val pathIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
+            val dateIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+            val mimeIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+            while (it.moveToNext()) {
+                if (it.getLong(dateIdx) <= timeThreshold) continue
+                if (mimePrefix != null &&
+                    !it.getString(mimeIdx).orEmpty().startsWith(mimePrefix)
+                ) continue
+                val name = it.getString(nameIdx) ?: continue
+                if (result.shellFile == null && ownerOf(it) == SHELL_PACKAGE) {
+                    result.shellFile = name
+                }
+                if (!result.featureHit && featureMatcher != null) {
+                    val path = it.getString(pathIdx)?.lowercase().orEmpty()
+                    if (featureMatcher(name.lowercase(), path)) {
+                        result.featureHit = true
+                        result.featureOwner = ownerOf(it)
+                    }
+                }
+            }
+        }
+    }
+
+    /** 截图特征命名：文件名含 screenshot 或相对路径含 screenshots 目录 */
+    private fun isScreenshotFeatureName(name: String, path: String): Boolean =
+        name.contains("screenshot") || path.contains("screenshots")
+
+    /** 录屏特征命名(覆盖 AOSP 与中文 ROM 命名) */
+    private fun isRecordingFeatureName(name: String, path: String): Boolean =
+        name.contains("screenrecord") || name.contains("screen record") ||
+                name.contains("screen_record") || name.contains("屏幕录制") ||
+                name.contains("录屏") || path.contains("screenrecord") ||
+                path.contains("screen records")
+
+    /**
      * 回看窗口内新增图片检查(两路信号，任一命中才回调)：
      * - 截图特征：文件名/相对路径含 screenshot 即命中(featureOwner 为最新
-     *   特征行的写入者，归因不可用时 null，见 mediaProjection 注释)；
+     *   特征行的写入者)；
      * - Shell 通道：写入者 owner_package_name 为 com.android.shell(adb
      *   shell 的 uid 归属包；screencap 可写任意位置任意名，不受特征词
      *   约束)即命中(shellShot 为该行文件名)。
-     * 查询不按特征词过滤(Shell 写入位置不受限)，两路判定均在代码侧完成；
-     * 行按 DATE_ADDED 降序，首个特征行即最新一行(与旧版取首行为 owner 等价)。
+     * 逐卷扫描 Images 集合(双信号)与 Downloads 集合(Download/ 目录，仅查
+     * Shell 信号并按 image/ MIME 过滤——screencap 落盘位置不受限；特征词
+     * 路径不做，下载的"screenshot"命名文件非设备捕获事件)。
      *
      * @param notBeforeSec 重置水位线(秒)：仅回查 DATE_ADDED 晚于该时刻的
      *   证据，防止用户"重置检测结果"后 15s 回看窗口内的旧截图被重新报出
      *   (媒体扫描器对旧文件的后续更新会持续触发 onChange)；0 = 不限制
      */
     fun checkForScreenshot(
-        contentResolver: ContentResolver,
+        context: Context,
         notBeforeSec: Long,
         onDetected: (featureHit: Boolean, featureOwner: String?, shellShot: String?) -> Unit
     ) {
-        val timeThreshold = maxOf(
-            System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD,
-            notBeforeSec
-        )
-        val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ?"
-        val selectionArgs = arrayOf(timeThreshold.toString())
-        val cursor = contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            mediaProjection,
-            mediaQueryBundle(selection, selectionArgs),
-            null
-        )
-        if (cursor == null) return
-        cursor.use {
-            val nameIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-            val pathIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.RELATIVE_PATH)
-            val dateIdx = it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-            var featureHit = false
-            var featureOwner: String? = null
-            var shellShot: String? = null
-            while (it.moveToNext()) {
-                if (it.getLong(dateIdx) <= timeThreshold) continue
-                if (shellShot == null && ownerOf(it) == SHELL_PACKAGE) {
-                    shellShot = it.getString(nameIdx)
-                }
-                if (!featureHit) {
-                    val name = it.getString(nameIdx)?.lowercase().orEmpty()
-                    val path = it.getString(pathIdx)?.lowercase().orEmpty()
-                    if (name.contains("screenshot") || path.contains("screenshots")) {
-                        featureHit = true
-                        featureOwner = ownerOf(it)
-                    }
-                }
-            }
-            if (featureHit || shellShot != null) onDetected(featureHit, featureOwner, shellShot)
+        val result = MediaScanResult()
+        val contentResolver = context.contentResolver
+        for (volume in mediaVolumeNames(context)) {
+            scanMediaCollection(
+                contentResolver,
+                MediaStore.Images.Media.getContentUri(volume),
+                notBeforeSec,
+                mimePrefix = null,
+                featureMatcher = ::isScreenshotFeatureName,
+                result
+            )
+            scanMediaCollection(
+                contentResolver,
+                MediaStore.Downloads.getContentUri(volume),
+                notBeforeSec,
+                mimePrefix = "image/",
+                featureMatcher = null,
+                result
+            )
+        }
+        if (result.featureHit || result.shellFile != null) {
+            onDetected(result.featureHit, result.featureOwner, result.shellFile)
         }
     }
 
     /**
-     * 回看窗口内新增录屏视频检查：文件名/相对路径命中录屏特征词
-     * (screenrecord / screen record / screen_record / 屏幕录制 / 录屏，
-     * 覆盖 AOSP 与中文 ROM 命名)。返回写入者包名(同上，归因可降级)。
+     * 回看窗口内新增录屏视频检查(两路信号，任一命中才回调)：
+     * - 录屏特征：文件名/相对路径命中录屏特征词(screenrecord / 屏幕录制
+     *   等，见 [isRecordingFeatureName])，featureOwner 为最新特征行写入者
+     *   (归因可降级)；
+     * - Shell 通道：写入者为 com.android.shell(如 adb shell screenrecord，
+     *   写入位置/命名不受特征词约束)即命中(shellRecording 为该行文件名)。
+     * 逐卷扫描 Video 集合与 Downloads 集合(Download/ 目录的视频不进
+     * Video 集合，按 video/ MIME 过滤)。
      * [notBeforeSec] 为重置水位线(秒)，语义见 [checkForScreenshot]。
      */
     fun checkForScreenRecordingVideo(
-        contentResolver: ContentResolver,
+        context: Context,
         notBeforeSec: Long,
-        onDetected: (owner: String?) -> Unit
+        onDetected: (featureHit: Boolean, featureOwner: String?, shellRecording: String?) -> Unit
     ) {
-        val timeThreshold = maxOf(
-            System.currentTimeMillis() / 1000 - SCREENSHOT_TIME_THRESHOLD,
-            notBeforeSec
-        )
-        val name = "LOWER(${MediaStore.MediaColumns.DISPLAY_NAME})"
-        val path = "LOWER(${MediaStore.MediaColumns.RELATIVE_PATH})"
-        val selection = "${MediaStore.MediaColumns.DATE_ADDED} > ? AND (" +
-                "$name LIKE ? OR $name LIKE ? OR $name LIKE ? OR $name LIKE ? OR $name LIKE ? OR " +
-                "$path LIKE ? OR $path LIKE ?)"
-        val selectionArgs = arrayOf(
-            timeThreshold.toString(),
-            "%screenrecord%",
-            "%screen record%",
-            "%screen_record%",
-            "%屏幕录制%",
-            "%录屏%",
-            "%screenrecord%",
-            "%screen records%"
-        )
-        val cursor = contentResolver.query(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            mediaProjection,
-            mediaQueryBundle(selection, selectionArgs),
-            null
-        )
-        cursor?.use {
-            if (it.moveToFirst()) {
-                val dateAdded =
-                    it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED))
-                if (dateAdded > timeThreshold) {
-                    onDetected(ownerOf(it))
-                }
-            }
+        val result = MediaScanResult()
+        val contentResolver = context.contentResolver
+        for (volume in mediaVolumeNames(context)) {
+            scanMediaCollection(
+                contentResolver,
+                MediaStore.Video.Media.getContentUri(volume),
+                notBeforeSec,
+                mimePrefix = null,
+                featureMatcher = ::isRecordingFeatureName,
+                result
+            )
+            scanMediaCollection(
+                contentResolver,
+                MediaStore.Downloads.getContentUri(volume),
+                notBeforeSec,
+                mimePrefix = "video/",
+                featureMatcher = ::isRecordingFeatureName,
+                result
+            )
+        }
+        if (result.featureHit || result.shellFile != null) {
+            onDetected(result.featureHit, result.featureOwner, result.shellFile)
         }
     }
 

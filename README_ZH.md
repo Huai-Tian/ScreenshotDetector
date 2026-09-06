@@ -44,10 +44,13 @@
   通过 AppOps 隐藏 op 字符串 `android:project_media` / `android:project_audio` 检测设备上持有免询问投屏（视频/音频）持久授权的应用（能力面信号，卡片显示完整数量与最多 5 个已授权包名）
 
 - **媒体库监听**  
-  通过 `ContentObserver` 监听媒体库变化：图片库识别新增截图文件，视频库识别录屏特征命名（screenrecord / 屏幕录制等，覆盖 AOSP 与中文 ROM 命名）的新增录屏视频；注册时回查 15 秒窗口，覆盖打开应用前刚发生的行为，卡片附写入者归因（`owner_package_name` 隐藏列，跨应用可见性依 ROM 而定可降级）
+  通过 `ContentObserver` 监听媒体库变化：图片库识别新增截图文件，视频库识别录屏特征命名（screenrecord / 屏幕录制等，覆盖 AOSP 与中文 ROM 命名）的新增录屏视频；逐卷扫描全部外置存储（SD 卡等独立卷，API 30+）并覆盖 `Download/` 目录（该目录视频不进 Video 集合，按 MIME 过滤后纳入）；注册时回查 15 秒窗口，覆盖打开应用前刚发生的行为。卡片附写入者归因（`owner_package_name` 隐藏列，跨应用可见性依 ROM 而定可降级；SystemUI 写入者标注为系统按键截图——本应用后台或 Android 11-13 按键回调无信号时的跨版本兜底证据）
 
 - **Shell/ADB 通道截图检测**  
-  检测经 adb shell 通道产出的截图：图片库行的写入者归因为 `com.android.shell`（adb shell 的 uid 归属包）即 shell 通道捕获（如 `adb shell screencap`）的事实记录——写入位置与文件名不受约束，故扫描不限截图特征命名。按键截屏由 SystemUI 写入、三方应用以自身包名写入，写入者身份即可区分通道；卡片附文件名
+  检测经 adb shell 通道产出的截图：图片库行的写入者归因为 `com.android.shell`（adb shell 的 uid 归属包）即 shell 通道捕获（如 `adb shell screencap`）的事实记录——写入位置与文件名不受约束，故扫描不限截图特征命名（含 `Download/` 目录与非主卷）。按键截屏由 SystemUI 写入、三方应用以自身包名写入，写入者身份即可区分通道；卡片附文件名
+
+- **Shell/ADB 通道录屏检测**  
+  检测经 adb shell 通道产出的录屏：视频库行（含 Downloads 集合）的写入者归因为 `com.android.shell`（如 `adb shell screenrecord`）即独立上报卡片（附文件名）——与截图侧同构，写入位置与命名不受特征词约束，自定义文件名的命令录屏不漏报
 
 - **设备环境安全检测**  
   检测开发者选项、USB 调试、无线调试（隐藏键 `adb_wifi_enabled`）、模拟辅助显示（隐藏键 `overlay_display_devices`）、无线显示开关（隐藏键 `wifi_display_on`）、无障碍模式（`getEnabledAccessibilityServiceList` 可跨应用枚举已启用的无障碍服务，卡片显示完整数量与最多 5 个应用包名，排除本应用自身的增强服务）等风险项。无障碍状态以 200ms 轮询实时刷新（覆盖后台开关与服务集合变化，卡片随当前状态出现/更新/移除）
@@ -65,7 +68,7 @@
   通过 `UiModeManager` 检测底座/桌面模式接入（dock 是桌面窗口模式/外接显示的强前置信号，与外接显示器卡片互补）
 
 - **文件监听**  
-  通过 `FileObserver` 监听截图/录屏目录（`Pictures/Screenshots`、`Movies/ScreenRecords`、`Movies`）文件变化；注册时回扫目录，覆盖打开应用前落盘的文件（录屏目录是先于媒体库扫描落库数秒的即时文件信号）
+  通过 `FileObserver` 监听截图/录屏目录（`Pictures/Screenshots`、`DCIM/Screenshots`、`Movies/ScreenRecords`、`DCIM/ScreenRecorder`、`Movies`，覆盖 AOSP 与小米系等 ROM 落点）文件变化；注册时回扫目录，覆盖打开应用前落盘的文件（录屏目录是先于媒体库扫描落库数秒的即时文件信号）
 
 - **权限状态面板**  
   所有权限均为可选项，全部未授权应用也能正常运行，各项仅启用对应的检测能力，未授权项静默降级、不弹任何提示。顶栏安全等级图标实时反映状态：警告=三项常规权限（照片和视频/使用情况/应用列表）未齐，锁=常规权限已齐但两项增强服务（本应用无障碍服务/通知使用权）未全部启用，盾牌=全部就绪；点击展开详情（面板展开时 500ms 轮询）。未授权项点击获取：照片和视频为运行时权限一次弹窗合并申请（图片+视频，仅勾选"不再询问"后才跳应用详情页），使用情况/应用列表/无障碍/通知使用权为特殊访问授权跳对应设置页；应用列表项与消费路径同款调用全量枚举、按返回规模判定（ColorOS 开关拦截全量枚举而不拦截单包查询）
@@ -122,8 +125,8 @@
 - `DisplayManager`：检测投屏状态与虚拟显示器（外接显示器检测按 `DisplayInfo.type` 仅计入有线外接，虚拟/Miracast/模拟显示器分别归入对应检测项）
 - `MediaProjection`：检测屏幕投影服务状态
 - `MediaRouter`：检测外部显示路由
-- `ContentObserver` + `MediaStore`：检测媒体库新增截图（图片）/录屏视频（视频库按录屏特征命名匹配），查询 Bundle 携带 `MATCH_PENDING` 纳入写入瞬间的 pending 行使检出提前数秒，投影含 `owner_package_name` 隐藏列做写入者归因；图片侧归因为 `com.android.shell` 的行独立上报 Shell/ADB 截图卡片（shell 写入位置与命名不受限，扫描不限截图特征词）
-- `FileObserver`：检测截图/录屏目录文件创建/移动（`Pictures/Screenshots`、`Movies/ScreenRecords`、`Movies` 多目录）
+- `ContentObserver` + `MediaStore`：检测媒体库新增截图（图片）/录屏视频（视频库按录屏特征命名匹配），逐卷查询全部外置卷（`getExternalVolumeNames`，API 30+）并加查 Downloads 集合（`Download/` 目录，按 MIME 类型过滤），查询 Bundle 携带 `MATCH_PENDING` 纳入写入瞬间的 pending 行使检出提前数秒，投影含 `owner_package_name` 隐藏列做写入者归因；归因为 `com.android.shell` 的行独立上报 Shell/ADB 截图/录屏卡片（shell 写入位置与命名不受限，扫描不限特征词），SystemUI 写入者标注为系统按键截图
+- `FileObserver`：检测截图/录屏目录文件创建/移动（`Pictures/Screenshots`、`DCIM/Screenshots`、`Movies/ScreenRecords`、`DCIM/ScreenRecorder`、`Movies` 多目录）
 - `Settings.Global` / `AccessibilityManager`：检测 ADB、开发者选项、无障碍服务（`getEnabledAccessibilityServiceList` 无需权限、跨应用可见且为实时 Binder 查询，卡片显示已启用服务的包名；无障碍状态经 200ms 轮询前后台即时同步，该项为实时状态——服务全部停用后卡片自动移除，其余环境项保持粘性以防关闭即抹除痕迹）
 - `Settings.Secure` / `RoleManager`：读屏者通道检测——三方输入法（`DEFAULT_INPUT_METHOD`）、三方自动填充（`autofill_service` 隐藏键）、三方语音交互（`voice_interaction_service`，SDK 37.1 起移出公开 stub 改硬编码值）、三方默认助手（`getRoleHolders`，SDK 37.1 起移出公开 stub 改反射，`QUERY_ROLE_HOLDERS` 权限）
 - `NotificationManagerCompat`：已启用通知监听的三方应用（读取 Settings.Secure 已启用列表，与自查同源跨应用枚举）

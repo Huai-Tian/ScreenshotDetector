@@ -68,7 +68,10 @@
     <string name="video_media_library">Screen recording video saved</string>
     <string name="shell_screenshot">Shell / ADB screenshot</string>
     <string name="shell_screenshot_detail">File: %1$s (written by com.android.shell — typically produced by adb screencap)</string>
+    <string name="shell_recording">Shell / ADB screen recording</string>
+    <string name="shell_recording_detail">File: %1$s (written by com.android.shell — typically produced by adb shell screenrecord)</string>
     <string name="media_owner_detail">Written by: %1$s</string>
+    <string name="media_owner_systemui">Written by: SystemUI (system key-press screenshot)</string>
     <string name="mic_muted_suffix"> (microphone muted)</string>
     <string name="hdmi_audio_suffix"> (audio routed to HDMI)</string>
     <string name="third_party_assistant">Third-party assistant app active</string>

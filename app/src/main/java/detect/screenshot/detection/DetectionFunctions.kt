@@ -10,7 +10,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.ContentResolver
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.graphics.Rect
@@ -72,7 +71,7 @@ class DetectionFunctions(private val activity: MainActivity) {
     private var mediaLibraryObserver: ContentObserver? = null
     private var pendingMediaLibraryCallback: ((DetectionItems, String?) -> Unit)? = null
     private var videoMediaLibraryObserver: ContentObserver? = null
-    private var pendingVideoLibraryCallback: ((String?) -> Unit)? = null
+    private var pendingVideoLibraryCallback: ((DetectionItems, String?) -> Unit)? = null
     private var fileObserver: FileObserver? = null
     private var extraFileObservers = mutableListOf<FileObserver>()
     private var lastFileObserverTime = 0L
@@ -254,6 +253,10 @@ class DetectionFunctions(private val activity: MainActivity) {
     /** Shell/ADB 截图详情行(如"文件：Screenshot.png") */
     fun describeShellShot(fileName: String): String =
         activity.getString(R.string.shell_screenshot_detail, fileName)
+
+    /** Shell/ADB 录屏详情行(如"文件：demo.mp4") */
+    fun describeShellRecording(fileName: String): String =
+        activity.getString(R.string.shell_recording_detail, fileName)
 
     /** Faker 特征来源详情行(如"安装包：fake.screenshot") */
     fun describeFakerTrace(pkg: String): String =
@@ -633,9 +636,11 @@ class DetectionFunctions(private val activity: MainActivity) {
 
     /**
      * 图片媒体库监听(截图落库 + Shell 通道写入双信号，确定性事件)：
-     * 监听 MediaStore.Images 新增，回看窗口内两路信号由
+     * 逐卷监听 MediaStore.Images 与 MediaStore.Downloads(Download/ 目录，
+     * 覆盖 screencap 落盘位置不受限的 Shell 写入)，回看窗口内两路信号由
      * [Auxiliary.checkForScreenshot] 一次扫描产出并分别上报——
-     * - 截图特征命名命中 → MEDIA_LIBRARY(详情附写入者归因)；
+     * - 截图特征命名命中 → MEDIA_LIBRARY(详情附写入者归因，SystemUI
+     *   写入者标注为系统按键截图——跨版本/跨前后台的兜底归因证据)；
      * - 写入者归因为 com.android.shell(adb shell 的 uid 归属包，如
      *   adb screencap；写入位置/命名不受特征词约束) → SHELL_SCREENSHOT
      *   独立卡片。写入者身份即通道事实，不做跨通道交叉推断(按键截屏由
@@ -657,37 +662,50 @@ class DetectionFunctions(private val activity: MainActivity) {
             return
         }
         if (mediaLibraryObserver != null) return
-        val contentResolver = activity.contentResolver
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                reportScreenshotSignals(contentResolver, onIssue)
+                reportScreenshotSignals(onIssue)
             }
         }
         mediaLibraryObserver = observer
-        contentResolver.registerContentObserver(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            true,
-            observer
-        )
+        // 单 observer 注册于全部卷的 Images + Downloads 集合(unregister
+        // 一次即全量解除)。卷集合在注册时固定，会话中热插拔的存储卷待
+        // 下次启动覆盖(冷启动回查兜底)
+        for (volume in Auxiliary.mediaVolumeNames(activity)) {
+            listOf(
+                MediaStore.Images.Media.getContentUri(volume),
+                MediaStore.Downloads.getContentUri(volume)
+            ).forEach { uri ->
+                activity.contentResolver.registerContentObserver(uri, true, observer)
+            }
+        }
         // 冷启动回查：ContentObserver 只覆盖注册后的变化，注册时补查一次
         // (checkForScreenshot 自带 15s 回看窗口)，覆盖"打开本应用前 ≤15s 的截图"
-        reportScreenshotSignals(contentResolver, onIssue)
+        reportScreenshotSignals(onIssue)
     }
 
     /** 图片库双信号路由(见 startMediaLibraryDetection 文档) */
-    private fun reportScreenshotSignals(
-        contentResolver: ContentResolver,
-        onIssue: (DetectionItems, String?) -> Unit
-    ) {
+    private fun reportScreenshotSignals(onIssue: (DetectionItems, String?) -> Unit) {
         Auxiliary.checkForScreenshot(
-            contentResolver,
+            activity,
             resetWatermarkMs / 1000
         ) { featureHit, featureOwner, shellShot ->
             if (featureHit) {
-                onIssue(DetectionItems.MEDIA_LIBRARY, featureOwner?.let { describeMediaOwner(it) })
+                onIssue(DetectionItems.MEDIA_LIBRARY, describeScreenshotOwner(featureOwner))
             }
             shellShot?.let { onIssue(DetectionItems.SHELL_SCREENSHOT, describeShellShot(it)) }
         }
+    }
+
+    /**
+     * 截图特征行写入者详情：SystemUI(系统截图通道的写入者)标注为系统
+     * 按键截图——本应用后台或 Android 11-13(无 ScreenCaptureCallback)
+     * 时按键回调无信号，媒体库写入者归因是跨版本/跨前后台的兜底证据；
+     * 其余写入者按通用归因。
+     */
+    private fun describeScreenshotOwner(owner: String?): String? = when (owner) {
+        SYSTEM_UI_PACKAGE -> activity.getString(R.string.media_owner_systemui)
+        else -> owner?.let { describeMediaOwner(it) }
     }
 
     fun stopMediaLibraryDetection() {
@@ -698,39 +716,63 @@ class DetectionFunctions(private val activity: MainActivity) {
     }
 
     /**
-     * 视频媒体库监听(录屏落库证据链)：监听 MediaStore.Video 新增，回看窗口
-     * 内命中录屏特征命名(screenrecord/屏幕录制等，见 Auxiliary)即上报，
-     * 详情附写入者归因(owner_package_name，跨应用可见性依 ROM 而定，可降级)。
-     * 与图片版同模式：事件回调 + 注册时冷启动回查。
+     * 视频媒体库监听(录屏落库 + Shell 通道写入双信号，确定性事件)：
+     * 逐卷监听 MediaStore.Video 与 MediaStore.Downloads(Download/ 目录的
+     * 视频不进 Video 集合)，回看窗口内两路信号由
+     * [Auxiliary.checkForScreenRecordingVideo] 一次扫描产出并分别上报——
+     * - 录屏特征命名命中(screenrecord/屏幕录制等) → VIDEO_MEDIA_LIBRARY
+     *   (详情附写入者归因，owner_package_name 跨应用可见性依 ROM 而定
+     *   可降级)；
+     * - 写入者归因为 com.android.shell(如 adb shell screenrecord；写入
+     *   位置/命名不受特征词约束) → SHELL_RECORDING 独立卡片(附文件名)。
+     * 与图片版同模式：事件回调 + 注册时冷启动回查；未授权时挂起回调并
+     * 申请权限，落地后由权限回调补启；VIDEO_MEDIA_LIBRARY 与
+     * SHELL_RECORDING 共用本监听(幂等注册，路由在内部完成，见
+     * startMediaLibraryDetection 文档)。
      */
-    fun startVideoMediaLibraryDetection(onDetected: (owner: String?) -> Unit) {
+    fun startVideoMediaLibraryDetection(onIssue: (DetectionItems, String?) -> Unit) {
         if (!Auxiliary.hasVideoPermission(activity)) {
-            pendingVideoLibraryCallback = onDetected
-            requestMediaPermissions(fromPanel = false)
+            if (pendingVideoLibraryCallback == null) {
+                pendingVideoLibraryCallback = onIssue
+                requestMediaPermissions(fromPanel = false)
+            }
             return
         }
-        stopVideoMediaLibraryDetection()
-        val contentResolver = activity.contentResolver
+        if (videoMediaLibraryObserver != null) return
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                Auxiliary.checkForScreenRecordingVideo(
-                    contentResolver,
-                    resetWatermarkMs / 1000,
-                    onDetected
-                )
+                reportVideoSignals(onIssue)
             }
         }
         videoMediaLibraryObserver = observer
-        contentResolver.registerContentObserver(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            true,
-            observer
-        )
+        // 单 observer 注册于全部卷的 Video + Downloads 集合(语义见图片版注释)
+        for (volume in Auxiliary.mediaVolumeNames(activity)) {
+            listOf(
+                MediaStore.Video.Media.getContentUri(volume),
+                MediaStore.Downloads.getContentUri(volume)
+            ).forEach { uri ->
+                activity.contentResolver.registerContentObserver(uri, true, observer)
+            }
+        }
+        reportVideoSignals(onIssue)
+    }
+
+    /** 视频库双信号路由(见 startVideoMediaLibraryDetection 文档) */
+    private fun reportVideoSignals(onIssue: (DetectionItems, String?) -> Unit) {
         Auxiliary.checkForScreenRecordingVideo(
-            contentResolver,
-            resetWatermarkMs / 1000,
-            onDetected
-        )
+            activity,
+            resetWatermarkMs / 1000
+        ) { featureHit, featureOwner, shellRecording ->
+            if (featureHit) {
+                onIssue(
+                    DetectionItems.VIDEO_MEDIA_LIBRARY,
+                    featureOwner?.let { describeMediaOwner(it) }
+                )
+            }
+            shellRecording?.let {
+                onIssue(DetectionItems.SHELL_RECORDING, describeShellRecording(it))
+            }
+        }
     }
 
     fun stopVideoMediaLibraryDetection() {
@@ -743,8 +785,9 @@ class DetectionFunctions(private val activity: MainActivity) {
     // ---------- FileObserver 检测 ----------
     /**
      * 截图/录屏目录文件监听：Pictures/Screenshots(截图，AOSP) +
-     * Movies/ScreenRecords(录屏，AOSP) + Movies(三方录屏常见落点)。
-     * 录屏目录是即时文件信号——先于媒体库扫描落库数秒。
+     * DCIM/Screenshots(截图，小米系等 ROM) + Movies/ScreenRecords(录屏，
+     * AOSP) + DCIM/ScreenRecorder(录屏，小米系等 ROM) + Movies(三方录屏
+     * 常见落点)。录屏目录是即时文件信号——先于媒体库扫描落库数秒。
      * 重置水位线(见 [resetWatermarkMs])：事件与冷启动回查均只报
      * lastModified 晚于水位线的文件——重置后媒体扫描器对旧截图的
      * pending→settled 重命名等后续事件不再触发上报。
@@ -754,7 +797,9 @@ class DetectionFunctions(private val activity: MainActivity) {
         val external = Environment.getExternalStorageDirectory()
         val watchedDirs = listOf(
             File(external, "Pictures/Screenshots"),
+            File(external, "DCIM/Screenshots"),
             File(external, "Movies/ScreenRecords"),
+            File(external, "DCIM/ScreenRecorder"),
             File(external, "Movies")
         )
         val handler = Handler(Looper.getMainLooper())

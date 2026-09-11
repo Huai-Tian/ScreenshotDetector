@@ -94,6 +94,11 @@
     <string name="description_first">This software is a security tool dedicated to screen behavior detection. It enables real-time awareness of potential screen capture activities—including screenshots, screen recording, and screen casting—while also monitoring risk conditions within the device environment.</string>
     <string name="description_second">Completely free! Resale is strictly prohibited! Not for illegal or commercial use.</string>
     <string name="status_normal">Normal</string>
+    <!--Self media probe-->
+    <string name="self_media_probe">Media probe</string>
+    <string name="probe_running">Probing: inserting an own media row and waiting for its change event (up to 5s)…</string>
+    <string name="probe_delivered">Result: own media event received — media library monitoring is working for this app.</string>
+    <string name="probe_blocked">Result: no own media event within 5s — media events of this app are being filtered.</string>
     <!--AgreementPage-->
     <string name="user_agreement">User Agreement</string>
     <string name="agreed">[Agreed]</string>

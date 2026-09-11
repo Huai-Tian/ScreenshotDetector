@@ -94,6 +94,10 @@
     <string name="description_first">本软件是一款专注于屏幕行为检测的安全工具，帮助用户实时感知设备上可能发生的截屏、录屏、投屏等屏幕内容捕获行为，并监测设备环境中的潜在风险状态。</string>
     <string name="description_second">完全免费！禁止倒卖！禁止用于非法违规用途、禁止用于商业用途。</string>
     <string name="status_normal">正常</string>
+    <string name="self_media_probe">自插探测</string>
+    <string name="probe_running">正在探测：插入一行自有媒体并等待其变化事件（最长 5 秒）…</string>
+    <string name="probe_delivered">结果：已收到自身媒体事件——本应用的媒体库监听工作正常。</string>
+    <string name="probe_blocked">结果：5 秒内未收到自身媒体事件——本应用的媒体事件正被过滤。</string>
     <string name="user_agreement">用户协议</string>
     <string name="agreed">[已同意]</string>
     <string name="close">关闭</string>

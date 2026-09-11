@@ -52,6 +52,7 @@ import java.io.File
 import java.util.function.Consumer
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.core.net.toUri
+import androidx.core.graphics.createBitmap
 
 /**
  * 全部检测逻辑的宿主：持有各检测器的回调/观察者等运行期状态，
@@ -796,6 +797,59 @@ class DetectionFunctions(private val activity: MainActivity) {
         screenshotScanPending = null
         screenshotScanJob?.cancel()
         screenshotScanJob = null
+    }
+
+    /**
+     * 自插探测(媒体监听自证)：临时注册 Images observer → pending→settled
+     * 两阶段插入一行自有图片(任意三方应用存图的通用路径，owner 归本应用；
+     * 命名避开截图特征词，不触发自身特征扫描) → 5s 内收到 onChange 即
+     * 媒体事件通道对自身可达(监听未被过滤)；超时即本应用的媒体事件正被
+     * 过滤(观测事实，非推断)。探测行用毕即删(删除亦为自有事件，无害)。
+     * onResult 在主线程回调(写 Compose 状态)。
+     */
+    fun probeSelfMediaInsert(onResult: (Boolean) -> Unit) {
+        CoroutineScope(Dispatchers.Main).launch {
+            val delivered = withContext(Dispatchers.IO) {
+                runCatching {
+                    val resolver = activity.contentResolver
+                    val collection = MediaStore.Images.Media.getContentUri(
+                        MediaStore.VOLUME_EXTERNAL_PRIMARY
+                    )
+                    val latch = java.util.concurrent.CountDownLatch(1)
+                    val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+                        override fun onChange(selfChange: Boolean) = latch.countDown()
+                    }
+                    resolver.registerContentObserver(collection, true, observer)
+                    try {
+                        val values = android.content.ContentValues().apply {
+                            put(
+                                MediaStore.Images.Media.DISPLAY_NAME,
+                                "media_probe_${System.currentTimeMillis()}.png"
+                            )
+                            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                            put(MediaStore.Images.Media.IS_PENDING, 1)
+                        }
+                        val uri = resolver.insert(collection, values)
+                            ?: return@runCatching false
+                        resolver.openOutputStream(uri)?.use { out ->
+                            // 1x1 PNG(Bitmap 压缩产出，内容有效性免手工字节)
+                            createBitmap(1, 1).compress(android.graphics.Bitmap.CompressFormat.PNG, 0, out)
+                        }
+                        values.clear()
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        resolver.update(uri, values, null, null)
+                        // pending 插入与 settled 更新均会触发 onChange(见
+                        // MEDIA_SCAN_DEBOUNCE_MS 注释)，首个回调即送达
+                        val ok = latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                        runCatching { resolver.delete(uri, null, null) }
+                        ok
+                    } finally {
+                        resolver.unregisterContentObserver(observer)
+                    }
+                }.getOrDefault(false)
+            }
+            onResult(delivered)
+        }
     }
 
     /**

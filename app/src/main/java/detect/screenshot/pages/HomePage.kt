@@ -102,6 +102,11 @@ fun HomeCompose(
     var info by remember { mutableStateOf(false) }
     var openSource by remember { mutableStateOf(false) }
 
+    // 自插探测：probing=探测进行中(对话框常驻不可关)，结果落 probeResult
+    // (true=自有媒体事件送达，监听未被过滤；false=超时，事件正被过滤)
+    var probing by remember { mutableStateOf(false) }
+    var probeResult by remember { mutableStateOf<Boolean?>(null) }
+
     // ========== 潜在风险弹层(顶栏眼睛按钮，仅有命中时可见) ==========
     var suspiciousExpanded by remember { mutableStateOf(false) }
 
@@ -336,6 +341,20 @@ fun HomeCompose(
                             modifier = Modifier
                                 .width(180.dp)
                         ) {
+                            // 自插探测：验证媒体事件通道对自身是否可达(被过滤
+                            // 的直接观测)，见 DetectionFunctions.probeSelfMediaInsert
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.self_media_probe)) },
+                                onClick = {
+                                    expanded = false
+                                    probing = true
+                                    probeResult = null
+                                    activity.detectionFunctions.probeSelfMediaInsert { delivered ->
+                                        probing = false
+                                        probeResult = delivered
+                                    }
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.user_agreement)) },
                                 onClick = {
@@ -415,6 +434,34 @@ fun HomeCompose(
                 Button(
                     onClick = { agreement = false },
                     modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.close))
+                }
+            }
+        )
+    }
+    // 自插探测结果对话框：探测中常驻(防超时前误关漏看结果)，
+    // 结果落定后可关；三分支文案与 probeSelfMediaInsert 语义对齐
+    if (probing || probeResult != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.self_media_probe)) },
+            text = {
+                Text(
+                    when {
+                        probing -> stringResource(R.string.probe_running)
+                        probeResult == true -> stringResource(R.string.probe_delivered)
+                        else -> stringResource(R.string.probe_blocked)
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        probing = false
+                        probeResult = null
+                    },
+                    enabled = !probing
                 ) {
                     Text(stringResource(R.string.close))
                 }

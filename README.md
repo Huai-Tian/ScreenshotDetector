@@ -165,50 +165,76 @@ Based on Android hidden system APIs:
 
 ---
 
-## 🚫 Non‑Commercial Statement
+## 🚫 Non-Commercial Statement
 
-This project is initiated by the developer out of personal interest and for technical research purposes, and is **non-commercial** in nature:
+This project was started by the developer out of personal interest and is
+**non-commercial** in nature:
 
-- **Permanently Free**:  
-  This project is completely free, with **no paid features, memberships, subscriptions, or in-app purchases**. All features are fully accessible to all users.
+- **Permanently free**: no paid features, memberships, subscriptions, or in-app purchases
+- **No sponsorship channels**: the author has never opened sponsorship channels and accepts no donations of any kind
+- **Research & personal-use oriented**: positioned as an application-layer detection research tool, not a commercial product
 
-- **No Sponsorship Channels**:  
-  The author has **never opened any sponsorship channels**, nor does the author **accept any financial donations** — to maintain the project's neutrality and purity.
+**License is GPL-3.0 only — no commercial exceptions.** This project is
+offered under the terms of the GPL-3.0 (see [LICENSE](LICENSE)), and **every
+use must comply with that license in full**. What GPL requires — source
+availability and the same license for derivatives — is exactly what it means
+to use this project. **Commercial use that cannot accept GPL terms does not
+have the author's authorization**: the author does not offer, and will not
+negotiate, dual licensing, commercial exceptions, or proprietary
+redistribution. Reselling builds for profit while ignoring GPL obligations
+is copyright infringement.
 
-- **Non-Profit Purpose**:  
-  This project involves no commercial operations, and the author derives no direct or indirect financial benefit from it.
+- **Attribution and statement integrity**:
+  Redistribution of unmodified builds is permitted only together with this
+  statement and proper attribution. **Removing, altering, or obscuring this
+  non-commercial statement when redistributing is prohibited.**
+- **Official channels only**:
+  Obtain the app **only** from this repository (GitHub) or its official
+  Releases. Builds from any other source are unofficial, unverified, and used
+  entirely at the downloader's own risk.
 
-- **Research-Oriented**:  
-  This project is consistently positioned for **security research, software testing, and educational purposes** — providing a research tool for the community, not a commercial product. Any commercial use of this project is the user's own initiative and is unrelated to this project.
+## ⚠️ Disclaimer
 
-- **Resale Prohibited**:  
-  Resale, redistribution for profit, or commercial use of this project is strictly prohibited. Please obtain it only from this repository (GitHub) or other officially designated channels. The developer assumes no responsibility for any issues arising from unofficial sources.
+> **This is research software. Detection is best-effort and probabilistic.
+> It can be evaded, and it can produce false positives. Do not rely on it
+> as your sole security control.**
 
----
-
-## ⚖️ Disclaimer
-
-- **Purpose Limitation**:  
-  This project is intended for **security research, software testing, and educational purposes** only.  
-  Do not use this project for any illegal purposes.
-
-- **Consequences Warning**:  
-  The detection results provided by this software are **for security research reference only and should not be relied upon as absolute security evidence**. You should assess the risks before using it. The developer and contributors **are not responsible for any loss or consequences arising from reliance on the detection results**.
-
-- **No Warranty**:  
-  This software is provided under the terms of its license, **without any express or implied warranties**, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement.
-
-- **Compatibility Disclaimer**:  
-  This software **does not guarantee full compatibility with all OS versions, device models, or third-party applications**. The developer assumes no responsibility for functional issues or losses caused by system differences, application updates, or other uncontrollable factors.
-
-- **Limitation of Liability**:  
-  To the fullest extent permitted by applicable law, **in no event shall the author or contributors be liable** for any direct, indirect, incidental, special, or consequential damages arising out of or in connection with the use or inability to use this software, even if advised of the possibility of such damages.
-
-- **User Responsibility**:  
-  Users assume all legal responsibilities arising from the use of this project.
-
-- **Final Interpretation**:  
-  The final interpretation of this disclaimer belongs to the author of this project.
+- **Purpose limitation**:  
+  This project is intended for **personal device awareness, security research,
+  and educational purposes** — telling the user when screenshot/recording/
+  sharing activity happens on their device. Do not use it for any illegal
+  purpose (including but not limited to surveillance of other persons'
+  devices without consent).
+- **Detection limitations**:  
+  Application-layer detection has **limited capability against framework-level
+  behaviors (e.g., LSPosed/Xposed hooks) and privileged-layer behaviors
+  (e.g., Shizuku/Root)**, as documented in the README. A missed detection is
+  a documented design boundary, **not a vulnerability and not a warranty**.
+  Suspicions (e.g., the audio-recording source attribution) are explicitly
+  heuristic and may be inaccurate.
+- **No guarantee of detection**:  
+  The developer **does not warrant that any screenshot, recording, or sharing
+  activity will be detected**, nor that any alert will be timely, accurate,
+  or complete. False negatives and false positives are both expected behavior.
+- **Privacy**:  
+  The app processes sensitive signals (notification content, usage stats,
+  app lists, window events) **locally on the device only**. It performs
+  **no network transmission of detected data**. Users grant the corresponding
+  permissions voluntarily and may revoke them at any time.
+- **No warranty**:  
+  This software is provided under GPL-3.0, **without any express or implied
+  warranties**, including merchantability, fitness for a particular purpose,
+  and non-infringement.
+- **Limitation of liability**:  
+  To the fullest extent permitted by applicable law, **the author and
+  contributors are not liable** for any damages arising from the use or
+  inability to use this software, including but not limited to missed
+  detections, data loss, device issues, or legal consequences.
+- **User responsibility**:  
+  Users assume all legal responsibilities arising from their use of this
+  project, and from obtaining it from any channel.
+- **Final interpretation**:  
+  The final interpretation of this disclaimer belongs to the author.
 
 ---
 
